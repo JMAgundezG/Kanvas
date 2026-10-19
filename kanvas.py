@@ -795,7 +795,8 @@ def cmd_note(args):
         return t
 
     t = mutate(path, op)
-    print(f"Added a note to {t['id']} ({len(t['notes'])} notes)")
+    count = len(t["notes"])
+    print(f"Added a note to {t['id']} ({count} note{'' if count == 1 else 's'})")
 
 
 def cmd_propose(args):

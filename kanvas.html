@@ -1163,8 +1163,9 @@ function fit(animate = true) {
   if (!lastLayout) return;
   const vp = $("#viewport").getBoundingClientRect();
   const W = lastLayout.width || 1, H = lastLayout.height || 1;
-  view.k = clamp(Math.min((vp.width - 60) / W, (vp.height - 60) / H, 1), 0.25, 1);
-  view.x = Math.max(30, (vp.width - W * view.k) / 2);
+  const usable = vp.width - 56; // keep clear of the zoom buttons
+  view.k = clamp(Math.min((usable - 40) / W, (vp.height - 60) / H, 1), 0.25, 1);
+  view.x = Math.max(24, (usable - W * view.k) / 2);
   view.y = Math.max(24, (vp.height - H * view.k) / 2);
   applyView(animate);
 }
