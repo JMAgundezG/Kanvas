@@ -1,4 +1,22 @@
 # Changelog
+## v0.4.0 — 2026-10-19
+Kanvas runs without Obsidian. The board is a JSON file, agents use a new CLI, and you plan and review in an interactive HTML page.
+
+- Add `kanvas.html`: a single-file board with a dependency graph (swimlanes per group, lineage highlighting, drag to connect) and a kanban view, a task panel with Markdown, notes and review actions, filters, search, dark mode and keyboard shortcuts
+- Add `kanvas.py serve`: live two-way sync between the browser, the file and your agents, with compare-and-swap saves
+- Open `kanvas.html` directly in Chrome or Edge to edit `kanvas.json` in place, or export a read-only snapshot with `kanvas.py export`
+- Replace `canvas-tool.py` with `kanvas.py`; boards live in `kanvas.json` with stable formatting for clean diffs
+- `finish` requires a summary, stored as a note, so task descriptions stay as written (#10)
+- Agents add notes with `note`; notes record the author (`--as`, `KANVAS_AGENT`)
+- Group prefixes may contain digits, such as `L0C-01` (#12), and IDs continue past 99
+- `init` installs an agent skill in `.agents/skills/kanvas/` and never modifies existing files (#8)
+- Text options read UTF-8 from `--stdin` or `--file` on every platform, fixing multi-line and non-ASCII text on Windows (#20, #23)
+- Text arguments may follow options, as in `note DV-01 --as claude "..."`
+- Add `check`, `depend`, `add-group`, `import` (migrates Obsidian `.canvas` boards) and `export`
+- Writes are locked and atomic, so several agents and the browser can work at once
+- Remove the Obsidian plugin, `canvas-watcher.js`, `RULES.md` and the `.canvas` examples
+- Add a test suite and CI on Linux, macOS and Windows
+
 ## v0.3.1 — 2026-03-19
 - Fix `add-dep` incorrectly rejecting valid edges when a pre-existing unrelated cycle existed elsewhere in the graph
 ## v0.3.0 — 2026-03-19
