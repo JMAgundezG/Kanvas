@@ -2,11 +2,12 @@
 ## v0.4.0 — 2026-10-19
 Kanvas runs without Obsidian. The board is a JSON file, agents use a new CLI, and you plan and review in an interactive HTML page.
 
-- Add `kanvas.html`: a single-file board with a dependency graph (swimlanes per group, lineage highlighting, drag to connect) and a kanban view, a task panel with Markdown, notes and review actions, filters, search, dark mode and keyboard shortcuts
+- Add `kanvas.html`: a single-file board with a dependency graph (swimlanes per group, left-to-right or top-to-bottom, adjustable spacing, lineage highlighting, drag to connect) and a kanban view, right-click menus for cards, dependencies and empty space, undo and redo that keep agents' changes, a task panel with Markdown, notes and review actions, filters, search, dark mode and keyboard shortcuts
 - Add `kanvas.py serve`: live two-way sync between the browser, the file and your agents, with compare-and-swap saves
 - Open `kanvas.html` directly in Chrome or Edge to edit `kanvas.json` in place, or export a read-only snapshot with `kanvas.py export`
 - Replace `canvas-tool.py` with `kanvas.py`; boards live in `kanvas.json` with stable formatting for clean diffs
 - `finish` requires a summary, stored as a note, so task descriptions stay as written (#10)
+- YOLO: mark a task in the board and agents may start and finish it and everything it depends on without approval or review
 - Agents add notes with `note`; notes record the author (`--as`, `KANVAS_AGENT`)
 - Group prefixes may contain digits, such as `L0C-01` (#12), and IDs continue past 99
 - `init` installs an agent skill in `.agents/skills/kanvas/` and never modifies existing files (#8)

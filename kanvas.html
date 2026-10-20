@@ -109,6 +109,9 @@ svg#edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-even
 .edge.related { stroke: var(--accent); stroke-width: 2.2; }
 .edge.temp { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; }
 .m-met { fill: var(--edge); } .m-open { fill: var(--edge-open); } .m-hl { fill: var(--accent); }
+#edge-hits path { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.edge.hover, .edge.menu-target { stroke: var(--accent); stroke-width: 2.6; }
+#world.focusing .edge.hover, #world.focusing .edge.menu-target { opacity: 1; }
 .card { position: absolute; left: 0; top: 0; width: var(--cw); height: var(--ch); padding: 9px 11px 8px; border-radius: 11px; background: color-mix(in srgb, var(--c) 6%, var(--surface)); border: 1px solid color-mix(in srgb, var(--c) 42%, var(--border)); box-shadow: var(--shadow); cursor: pointer; display: flex; flex-direction: column; gap: 3px; user-select: none; transition: opacity .15s, box-shadow .15s; }
 .card:hover { box-shadow: var(--shadow-lg); }
 .card.s-proposed { border-style: dashed; border-width: 1.5px; }
@@ -116,6 +119,19 @@ svg#edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-even
 .card.s-done .card-title { color: var(--muted); }
 .card.sel { box-shadow: 0 0 0 2px var(--c), var(--shadow-lg); }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.head-end { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.yolo-tag, .yolo-mark, .callout.yolo, .yolo-btn { --y: #d97706; }
+[data-theme="dark"] :is(.yolo-tag, .yolo-mark, .callout.yolo, .yolo-btn) { --y: #fbbf24; }
+.yolo-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 800; letter-spacing: .05em; padding: 1px 7px 1px 5px; border-radius: 999px; color: #431407; background: linear-gradient(110deg, #fde047, #f59e0b 35%, #ea580c 60%, #f59e0b 80%, #fde047); background-size: 220% 100%; box-shadow: 0 0 10px rgba(245, 158, 11, .55); animation: yolo-fire 3s ease-in-out infinite alternate; }
+.yolo-tag .icon svg { width: 11px; height: 11px; fill: currentColor; }
+.yolo-mark { display: inline-flex; color: var(--y); filter: drop-shadow(0 0 3px rgba(251, 191, 36, .75)); }
+.yolo-mark .icon svg { width: 13px; height: 13px; fill: currentColor; }
+.callout.yolo { --c: var(--y); }
+.callout.yolo .icon { color: var(--y); }
+.callout.yolo .icon svg, .yolo-btn .icon svg { fill: currentColor; }
+@keyframes yolo-fire { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+@media (prefers-reduced-motion: reduce) { .yolo-tag { animation: none; } }
+.yolo-btn { color: color-mix(in srgb, var(--y) 80%, var(--text)); border-color: color-mix(in srgb, var(--y) 45%, var(--border)); }
 .cid { font: 600 11.5px/1.2 var(--mono); color: var(--muted); letter-spacing: .01em; }
 .card-title { font-weight: 600; font-size: 13.5px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .card-foot { margin-top: auto; display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--muted); min-width: 0; }
@@ -123,12 +139,15 @@ svg#edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-even
 .card-foot .icon svg { width: 12px; height: 12px; }
 .card-foot .grow { flex: 1; min-width: 0; display: block; }
 .handle { position: absolute; right: -8px; top: 50%; width: 16px; height: 16px; margin-top: -8px; border-radius: 50%; background: var(--surface); border: 2px solid var(--c); opacity: 0; cursor: crosshair; transition: opacity .15s, scale .15s; }
+.handle.in { right: auto; left: -8px; }
+#world.vertical .handle { right: auto; top: auto; left: 50%; bottom: -8px; margin: 0 0 0 -8px; }
+#world.vertical .handle.in { top: -8px; bottom: auto; }
 .card:hover .handle, #world.connecting .handle { opacity: 1; }
 .handle:hover { scale: 1.25; }
 #world.focusing .card:not(.related) { opacity: .3; }
 #world.focusing .edge:not(.related) { opacity: .2; }
 .card.dim { opacity: .2 !important; }
-.card.drop-target { box-shadow: 0 0 0 2px var(--accent), var(--shadow-lg); }
+.card.drop-target, .card.menu-target, .kcard.menu-target { box-shadow: 0 0 0 2px var(--accent), var(--shadow-lg); }
 .card.enter { animation: enter .3s ease-out; }
 .card.flash { animation: flash 1.6s ease-out; }
 @keyframes enter { from { opacity: 0; scale: .94; } }
@@ -137,6 +156,8 @@ svg#edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-even
 .zoombar button { border: 0; border-radius: 0; padding: 7px; background: transparent; }
 .zoombar button + button { border-top: 1px solid var(--border); }
 .zoombar .pct { font: 11px var(--mono); color: var(--muted); text-align: center; padding: 3px 0; border-top: 1px solid var(--border); }
+.zoombar .spread { display: flex; justify-content: center; padding: 8px 0; border-top: 1px solid var(--border); cursor: pointer; }
+.zoombar .spread input { writing-mode: vertical-lr; direction: rtl; width: 16px; height: 80px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .hint-bar { position: absolute; left: 14px; bottom: 14px; font-size: 12px; color: var(--faint); z-index: 2; pointer-events: none; }
 .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1; }
 .empty > div { pointer-events: auto; text-align: center; max-width: 420px; padding: 26px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); }
@@ -228,6 +249,24 @@ dialog.dlg::backdrop { background: rgb(10 12 18 / .38); backdrop-filter: blur(2p
 .group-row .btns button { padding: 4px; }
 .group-new { display: grid; grid-template-columns: 1fr 80px auto; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; align-items: center; }
+.ctx-menu { position: fixed; z-index: 40; min-width: 210px; max-width: 340px; padding: 5px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; font-size: 13px; animation: enter .12s ease-out; }
+.ctx-menu:focus { outline: none; }
+.ctx-menu button { width: 100%; min-width: 0; justify-content: flex-start; gap: 9px; padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; text-align: left; }
+.ctx-menu button:hover, .ctx-menu button:focus-visible { background: var(--surface-2); outline: none; }
+.ctx-menu button .icon { color: var(--muted); }
+.ctx-menu button.danger .icon { color: inherit; }
+.ctx-menu .lbl { overflow: hidden; text-overflow: ellipsis; }
+.ctx-menu .lbl .cid { margin-right: 6px; }
+.ctx-menu .sep { height: 1px; margin: 4px 3px; background: var(--border); }
+.ctx-menu .ctx-head { padding: 6px 9px 3px; font-size: 11.5px; color: var(--faint); }
+.ctx-link { display: flex; flex-direction: column; gap: 2px; padding-bottom: 4px; }
+.ctx-menu .ctx-task { width: auto; margin: 0 4px; padding: 6px 8px; gap: 8px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--c) 42%, var(--border)); background: color-mix(in srgb, var(--c) 8%, var(--surface)); }
+.ctx-menu .ctx-task:hover, .ctx-menu .ctx-task:focus-visible { border-color: var(--c); background: color-mix(in srgb, var(--c) 16%, var(--surface)); }
+.ctx-task .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.ctx-task .cid { flex: none; }
+.ctx-task .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-link-arrow { display: flex; align-items: center; gap: 6px; padding: 1px 12px; font-size: 11.5px; color: var(--muted); }
+.ctx-link-arrow .icon svg { width: 13px; height: 13px; }
 #toasts { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; z-index: 50; pointer-events: none; }
 .toast { padding: 8px 14px; border-radius: 10px; background: var(--text); color: var(--bg); box-shadow: var(--shadow-lg); font-size: 13px; animation: enter .2s ease-out; max-width: 80vw; }
 .toast.error { background: #dc2626; color: #fff; }
@@ -277,11 +316,14 @@ dialog.dlg::backdrop { background: rgb(10 12 18 / .38); backdrop-filter: blur(2p
   </div>
   <div class="chips" id="chips" role="group" aria-label="Filter by state"></div>
   <div class="spacer"></div>
+  <button id="undo" class="ghost icon-btn edit-only" data-icon="undo" aria-label="Undo" disabled></button>
+  <button id="redo" class="ghost icon-btn edit-only" data-icon="redo" aria-label="Redo" disabled></button>
   <label class="search"><span class="sicon" data-icon="search"></span><input id="search" type="search" placeholder="Filter tasks" aria-label="Filter tasks" autocomplete="off"></label>
   <div class="seg" role="tablist" aria-label="View">
     <button id="view-graph" data-icon="graph" title="Dependency graph (G)" aria-label="Graph"><span class="lbl">Graph</span></button>
     <button id="view-board" data-icon="columns" title="Board by state (B)" aria-label="Board"><span class="lbl">Board</span></button>
   </div>
+  <button id="orient" class="icon-btn" aria-label="Graph direction"></button>
   <button id="hide-done" class="toggle icon-btn" title="Hide finished tasks (H)" aria-label="Hide finished tasks"></button>
   <button id="groups-btn" class="edit-only" data-icon="folder" title="Manage groups" aria-label="Groups"><span class="lbl">Groups</span></button>
   <button id="new-task" class="primary edit-only" data-icon="plus" title="New task (N)">Task</button>
@@ -297,11 +339,12 @@ dialog.dlg::backdrop { background: rgb(10 12 18 / .38); backdrop-filter: blur(2p
         <div id="lanes"></div>
         <svg id="edges">
           <defs>
-            <marker id="m-met" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="m-met" d="M0 0L10 5L0 10z"/></marker>
-            <marker id="m-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="m-open" d="M0 0L10 5L0 10z"/></marker>
-            <marker id="m-hl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="m-hl" d="M0 0L10 5L0 10z"/></marker>
+            <marker id="m-met" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path class="m-met" d="M0 0L10 5L0 10z"/></marker>
+            <marker id="m-open" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path class="m-open" d="M0 0L10 5L0 10z"/></marker>
+            <marker id="m-hl" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path class="m-hl" d="M0 0L10 5L0 10z"/></marker>
           </defs>
           <g id="edge-layer"></g>
+          <g id="edge-hits"></g>
         </svg>
         <div id="cards"></div>
       </div>
@@ -311,8 +354,9 @@ dialog.dlg::backdrop { background: rgb(10 12 18 / .38); backdrop-filter: blur(2p
       <button id="zoom-out" data-icon="minus" title="Zoom out (-)" aria-label="Zoom out"></button>
       <button id="zoom-fit" data-icon="fit" title="Fit to screen (F)" aria-label="Fit to screen"></button>
       <div class="pct" id="zoom-pct">100%</div>
+      <label class="spread" title="Spacing between dependency levels: up extends, down compresses ([ and ])"><input id="spread" type="range" min="30" max="500" step="10" aria-label="Spacing between dependency levels"></label>
     </div>
-    <div class="hint-bar edit-only">Drag the dot on a card's edge onto another card to add a dependency. Scroll to pan, Ctrl+scroll to zoom.</div>
+    <div class="hint-bar edit-only">Drag a dot on a card's edge onto another card to add a dependency. Click an arrow to remove it. Right-click for more actions. Scroll to pan, Ctrl+scroll to zoom.</div>
     <div class="empty" id="graph-empty" hidden></div>
   </section>
   <section class="view" id="board-view" hidden><div id="kanban"></div></section>
@@ -336,13 +380,16 @@ const ID_RE = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 const PREFIX_RE = /^[A-Z][A-Z0-9]{0,5}$/;
 const UNGROUPED = "G";
 const GROUP_COLORS = ["#6366f1", "#0ea5e9", "#14b8a6", "#f59e0b", "#ec4899", "#84cc16", "#a855f7", "#f43f5e", "#06b6d4", "#78716c"];
-const CW = 240, CH = 96, GAP_X = 70, GAP_Y = 14, LANE_HEAD = 38, LANE_PAD = 14, LANE_GAP = 16;
+const CW = 240, CH = 96, GAP_Y = 14, LANE_HEAD = 38, LANE_PAD = 14, LANE_GAP = 16;
+const ARROW = 11; // markerWidth of the edge markers: edges end this far from the card so the tip touches it
 const POLL_MS = 1000;
 
 const ICONS = {
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   graph: '<rect x="3" y="3.5" width="6" height="5" rx="1.2"/><rect x="15" y="3.5" width="6" height="5" rx="1.2"/><rect x="9" y="15.5" width="6" height="5" rx="1.2"/><path d="M6 8.5v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-2M12 12.5v3"/>',
   columns: '<rect x="3" y="4" width="5" height="16" rx="1.2"/><rect x="10" y="4" width="5" height="11" rx="1.2"/><rect x="17" y="4" width="4" height="7" rx="1.2"/>',
+  "flow-right": '<rect x="2.5" y="8" width="6" height="8" rx="1.2"/><rect x="15.5" y="8" width="6" height="8" rx="1.2"/><path d="M8.5 12h6M12.5 10l2 2-2 2"/>',
+  "flow-down": '<rect x="8" y="2.5" width="8" height="6" rx="1.2"/><rect x="8" y="15.5" width="8" height="6" rx="1.2"/><path d="M12 8.5v6M10 12.5l2 2 2-2"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
@@ -355,6 +402,8 @@ const ICONS = {
   trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   back: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v6"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   play: '<path d="M7 4.5v15l12-7.5z"/>',
   pause: '<path d="M8 5v14M16 5v14"/>',
   eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
@@ -366,7 +415,11 @@ const ICONS = {
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>',
+  open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  unlink: '<path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 1.5 9.8M8 12h3M3 3l18 18"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
+  zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -445,6 +498,7 @@ function normalize(b) {
     t.group = t.group || null;
     t.desc = String(t.desc || "");
     t.deps = Array.isArray(t.deps) ? t.deps.map(String) : [];
+    if (t.yolo) t.yolo = true; else delete t.yolo;
     t.notes = Array.isArray(t.notes) ? t.notes.filter(isObj) : [];
   }
   return b;
@@ -464,7 +518,7 @@ function canonical(b) {
   const out = { kanvas: 1, title: b.title || "" };
   out.groups = b.groups.map((g) => ordered(g, ["id", "name"], ["id", "name"]));
   out.tasks = b.tasks.map((t) => {
-    const o = ordered(t, ["id", "title", "state", "group", "deps", "desc", "notes"], ["id", "title", "state"]);
+    const o = ordered(t, ["id", "title", "state", "group", "deps", "yolo", "desc", "notes"], ["id", "title", "state"]);
     if (o.notes) o.notes = o.notes.map((n) => ordered(n, ["at", "by", "text"], ["at", "by", "text"]));
     return o;
   });
@@ -480,7 +534,31 @@ function serialize(b) {
 
 const indexOf = (b) => new Map(b.tasks.map((t) => [key(t.id), t]));
 const unmetIn = (ix, t) => t.deps.filter((d) => { const x = ix.get(key(d)); return !x || x.state !== "done"; });
-const vstateIn = (ix, t) => (t.state === "todo" && unmetIn(ix, t).length ? "blocked" : t.state);
+// Proposals covered by YOLO count as approved, like in kanvas.py.
+const vstateIn = (ix, t, cover) => {
+  const s = t.state === "proposed" && cover && cover.has(key(t.id)) ? "todo" : t.state;
+  return s === "todo" && unmetIn(ix, t).length ? "blocked" : s;
+};
+
+// The task and everything it transitively depends on, as upper-case keys.
+function upstreamOf(b, id) {
+  const ix = indexOf(b), seen = new Set(), stack = [key(id)];
+  while (stack.length) {
+    const k = stack.pop();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const t = ix.get(k);
+    if (t) stack.push(...t.deps.map(key));
+  }
+  return seen;
+}
+
+// Task key -> ID of the YOLO task covering it (mirrors yolo_cover in kanvas.py).
+function yoloCoverIn(b) {
+  const cover = new Map();
+  for (const t of b.tasks) if (t.yolo) for (const k of upstreamOf(b, t.id)) if (!cover.has(k)) cover.set(k, t.id);
+  return cover;
+}
 
 function reaches(b, from, to) {
   const ix = indexOf(b), target = key(to), seen = new Set(), stack = [key(from)];
@@ -599,16 +677,17 @@ let board = null;       // what the UI shows (may include unsaved optimistic edi
 let confirmed = null;   // last state known to be on disk
 let store = null;
 let IX = new Map();
+let COVER = new Map();
 let pending = 0;
 let saveQueue = Promise.resolve();
 
 const prefs = (() => {
-  const defaults = { view: "graph", hideDone: false, theme: null };
+  const defaults = { view: "graph", orient: "horizontal", hideDone: false, theme: null, levelGap: 70 };
   try { return Object.assign(defaults, JSON.parse(localStorage.getItem("kanvas:prefs") || "{}")); } catch (e) { return defaults; }
 })();
 const savePrefs = () => { try { localStorage.setItem("kanvas:prefs", JSON.stringify(prefs)); } catch (e) { /* storage disabled */ } };
 
-const ui = { selected: null, search: "", states: new Set(), hover: null, editingDesc: false, focusDesc: false, panelStale: false, editingTitle: false };
+const ui = { selected: null, search: "", states: new Set(), hover: null, link: null, editingDesc: false, focusDesc: false, panelStale: false, editingTitle: false };
 // Unsaved text in the panel survives re-renders caused by agent changes.
 const drafts = { desc: null, note: new Map() };
 const view = { x: 40, y: 30, k: 1 };
@@ -616,13 +695,15 @@ let fitted = false;
 
 const get = (id) => IX.get(key(id));
 const unmet = (t) => unmetIn(IX, t);
-const vstate = (t) => vstateIn(IX, t);
+const vstate = (t) => vstateIn(IX, t, COVER);
+const yoloVia = (t) => (t.state === "done" ? null : COVER.get(key(t.id)) || null);
 const groupOf = (t) => board.groups.find((g) => g.id === t.group) || null;
 const dependents = (t) => board.tasks.filter((x) => x.deps.some((d) => same(d, t.id)));
 
 function setBoard(b) {
   board = b;
   IX = indexOf(board);
+  COVER = yoloCoverIn(board);
 }
 
 // ---------------------------------------------------------------------------
@@ -729,6 +810,9 @@ async function open(s) {
   store = s;
   confirmed = b;
   setBoard(clone(b));
+  edits.undo = [];
+  edits.redo = [];
+  renderUndo();
   document.body.classList.toggle("readonly", !!s.readOnly);
   $("#welcome").hidden = true;
   fitted = false;
@@ -738,10 +822,12 @@ async function open(s) {
   render();
 }
 
-async function commit(fn) {
+async function commit(fn, { record = true } = {}) {
   if (!store || store.readOnly) { toast("This snapshot is read-only"); return false; }
   let draft;
+  const before = clone(board);
   try { draft = clone(board); fn(draft); } catch (e) { toast(e.message, "error"); return false; }
+  const entry = record ? remember(before, draft) : null;
   setBoard(draft);
   render();
   pending++;
@@ -751,6 +837,7 @@ async function commit(fn) {
       setSync("ok");
     } catch (e) {
       toast(`Not saved: ${e.message}`, "error");
+      if (entry) forget(entry);
       try { confirmed = await store.load(); } catch (err) { setSync("bad", err.message); }
     } finally {
       pending--;
@@ -781,6 +868,166 @@ function applyRemote(fresh) {
   if (ui.selected && !get(ui.selected)) { toast(`${ui.selected} was removed`); ui.selected = null; }
   render();
   flash(changed);
+}
+
+// ---------------------------------------------------------------------------
+// Undo and redo of the human's own changes
+// ---------------------------------------------------------------------------
+
+const edits = { undo: [], redo: [] };
+const UNDO_LIMIT = 100;
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const FIELD_NAMES = { deps: "dependencies", desc: "description", yolo: "YOLO" };
+
+function remember(before, after) {
+  if (serialize(before) === serialize(after)) return null;
+  const entry = { before, after, label: describeChange(before, after) };
+  edits.undo.push(entry);
+  if (edits.undo.length > UNDO_LIMIT) edits.undo.shift();
+  edits.redo = [];
+  renderUndo();
+  return entry;
+}
+
+function forget(entry) {
+  edits.undo = edits.undo.filter((e) => e !== entry);
+  renderUndo();
+}
+
+function describeChange(a, z) {
+  const parts = [], fields = [];
+  const A = new Map(a.tasks.map((t) => [key(t.id), t])), Z = new Map(z.tasks.map((t) => [key(t.id), t]));
+  for (const [k, t] of Z) if (!A.has(k)) parts.push(`new task ${t.id}`);
+  for (const [k, t] of A) {
+    const n = Z.get(k);
+    if (!n) { parts.push(`deleting ${t.id}`); continue; }
+    const changed = Object.keys({ ...t, ...n }).filter((f) => !sameJson(t[f], n[f]));
+    if (changed.length) fields.push(`${t.id} ${changed.map((f) => FIELD_NAMES[f] || f).join(" and ")}`);
+  }
+  const GA = new Map(a.groups.map((g) => [g.id, g])), GZ = new Map(z.groups.map((g) => [g.id, g]));
+  for (const [id, g] of GZ) if (!GA.has(id)) parts.push(`new group ${g.name}`);
+  for (const [id, g] of GA) {
+    if (!GZ.has(id)) parts.push(`deleting group ${g.name}`);
+    else if (!sameJson(g, GZ.get(id))) parts.push(`renaming group ${g.name}`);
+  }
+  if (!parts.length && !fields.length && !sameJson(a.groups.map((g) => g.id), z.groups.map((g) => g.id))) parts.push("group order");
+  if (a.title !== z.title) parts.push("board title");
+  const all = [...parts, ...fields];
+  return all.length > 2 ? `${all.slice(0, 2).join(", ")} and ${all.length - 2} more` : all.join(", ") || "change";
+}
+
+// Re-applies the edits that turned `from` into `to` on the latest board, so changes that agents made
+// in between survive. A field is only changed if it still holds its `from` value; dependencies and
+// notes are merged item by item.
+function replay(b, from, to) {
+  let applied = 0, skipped = 0;
+  const setField = (obj, f, was, now) => {
+    if (sameJson(obj[f], now)) return;
+    if (!sameJson(obj[f], was)) { skipped++; return; }
+    if (now === undefined) delete obj[f]; else obj[f] = clone(now);
+    applied++;
+  };
+  const mergeList = (obj, f, was, now) => {
+    const has = (list, x) => list.some((y) => sameJson(y, x));
+    const before = obj[f] || [];
+    const list = before.filter((x) => !(has(was, x) && !has(now, x)));
+    for (const x of now) if (!has(was, x) && !has(list, x)) list.push(clone(x));
+    if (!sameJson(list, before)) { obj[f] = list; applied++; }
+  };
+  const removed = new Set(), created = new Set(), rewired = new Set();
+
+  if (from.title !== to.title) setField(b, "title", from.title, to.title);
+
+  const GF = new Map(from.groups.map((g) => [g.id, g])), GT = new Map(to.groups.map((g) => [g.id, g]));
+  for (const id of new Set([...GF.keys(), ...GT.keys()])) {
+    const was = GF.get(id), now = GT.get(id), cur = b.groups.find((g) => g.id === id);
+    if (was && !now) {
+      if (!cur) continue;
+      b.groups = b.groups.filter((g) => g !== cur);
+      for (const t of b.tasks) if (t.group === id) t.group = null;
+      applied++;
+    } else if (!was && now) {
+      if (cur) { skipped++; continue; }
+      b.groups.splice(Math.min(to.groups.indexOf(now), b.groups.length), 0, clone(now));
+      applied++;
+    } else if (cur) {
+      for (const f of Object.keys({ ...was, ...now })) if (!sameJson(was[f], now[f])) setField(cur, f, was[f], now[f]);
+    }
+  }
+  const order = (list) => list.map((g) => g.id).filter((id) => GF.has(id) && GT.has(id));
+  if (!sameJson(order(from.groups), order(to.groups)) && sameJson(order(b.groups), order(from.groups))) {
+    const rank = new Map(to.groups.map((g, i) => [g.id, i]));
+    b.groups.sort((x, y) => (rank.get(x.id) ?? Infinity) - (rank.get(y.id) ?? Infinity));
+    applied++;
+  }
+
+  const TF = new Map(from.tasks.map((t) => [key(t.id), t])), TT = new Map(to.tasks.map((t) => [key(t.id), t]));
+  for (const k of new Set([...TF.keys(), ...TT.keys()])) {
+    const was = TF.get(k), now = TT.get(k), cur = b.tasks.find((t) => key(t.id) === k);
+    if (was && !now) {
+      if (!cur) continue;
+      b.tasks = b.tasks.filter((t) => t !== cur);
+      removed.add(k);
+      applied++;
+    } else if (!was && now) {
+      if (cur) { skipped++; continue; }
+      b.tasks.splice(Math.min(to.tasks.indexOf(now), b.tasks.length), 0, clone(now));
+      created.add(k);
+      applied++;
+    } else if (!cur) {
+      skipped++;
+    } else {
+      for (const f of Object.keys({ ...was, ...now })) {
+        if (sameJson(was[f], now[f])) continue;
+        if (f === "deps") rewired.add(k);
+        if ((f === "deps" || f === "notes") && Array.isArray(was[f]) && Array.isArray(now[f])) mergeList(cur, f, was[f], now[f]);
+        else setField(cur, f, was[f], now[f]);
+      }
+    }
+  }
+
+  const ix = indexOf(b);
+  for (const t of b.tasks) {
+    if (removed.size) t.deps = t.deps.filter((d) => !removed.has(key(d)));
+    if (created.has(key(t.id))) t.deps = t.deps.filter((d) => ix.has(key(d)));
+    if (t.group && created.has(key(t.id)) && !b.groups.some((g) => g.id === t.group)) t.group = null;
+  }
+  for (const t of b.tasks) {
+    if (!created.has(key(t.id)) && !rewired.has(key(t.id))) continue;
+    for (const d of t.deps) if (reaches(b, d, t.id)) throw new Error(`that would make ${t.id} and ${d} depend on each other`);
+  }
+  return { applied, skipped };
+}
+
+function step(dir) {
+  if (!board || !store || store.readOnly) return;
+  const from = edits[dir], to = edits[dir === "undo" ? "redo" : "undo"];
+  const entry = from[from.length - 1];
+  if (!entry) return toast(dir === "undo" ? "Nothing to undo" : "Nothing to redo");
+  const [a, z] = dir === "undo" ? [entry.after, entry.before] : [entry.before, entry.after];
+  let result;
+  try { result = replay(clone(board), a, z); } catch (e) { toast(`Can't ${dir}: ${e.message}`, "error"); return; }
+  from.pop();
+  if (!result.applied) {
+    renderUndo();
+    return toast(`Can't ${dir} ${entry.label}: it was changed since`, "error");
+  }
+  commit((b) => { result = replay(b, a, z); }, { record: false }).then((ok) => {
+    (ok ? to : from).push(entry);
+    renderUndo();
+    if (!ok) return;
+    const kept = result.skipped ? ` (${result.skipped} later change${result.skipped > 1 ? "s" : ""} kept)` : "";
+    toast(`${dir === "undo" ? "Undone" : "Redone"}: ${entry.label}${kept}`);
+  });
+}
+
+function renderUndo() {
+  for (const dir of ["undo", "redo"]) {
+    const btn = $(`#${dir}`), last = edits[dir][edits[dir].length - 1];
+    const verb = dir === "undo" ? "Undo" : "Redo", keys = dir === "undo" ? "Ctrl+Z" : "Ctrl+Shift+Z";
+    btn.disabled = !last;
+    btn.title = last ? `${verb} ${last.label} (${keys})` : `Nothing to ${dir} (${keys})`;
+  }
 }
 
 function setSync(status, detail) {
@@ -838,6 +1085,18 @@ const ops = {
   },
   removeDep: (id, dep) => (b) => { const t = mustFind(b, id); t.deps = t.deps.filter((x) => !same(x, dep)); },
   approve: (ids) => (b) => { for (const t of b.tasks) if (t.state === "proposed" && ids.includes(t.id)) t.state = "todo"; },
+  // Turning YOLO on approves the chain's proposals and accepts what waits for review.
+  yolo: (id, on) => (b) => {
+    const t = mustFind(b, id);
+    if (!on) { delete t.yolo; return; }
+    t.yolo = true;
+    const ix = indexOf(b);
+    for (const k of upstreamOf(b, t.id)) {
+      const x = ix.get(k);
+      if (x && x.state === "proposed") x.state = "todo";
+      else if (x && x.state === "review") x.state = "done";
+    }
+  },
   addGroup: (name, prefix) => (b) => {
     if (b.groups.some((g) => g.name.toLowerCase() === name.toLowerCase())) throw new Error(`Group "${name}" already exists`);
     if (!PREFIX_RE.test(prefix)) throw new Error("Prefix: 1-6 letters or digits, starting with a letter");
@@ -923,6 +1182,10 @@ function renderHeader() {
   $("#progress").title = `${counts.done} of ${board.tasks.length} tasks done`;
   $("#view-graph").classList.toggle("on", prefs.view === "graph");
   $("#view-board").classList.toggle("on", prefs.view === "board");
+  const or = $("#orient"), vertical = prefs.orient === "vertical";
+  or.hidden = prefs.view !== "graph";
+  or.title = vertical ? "Graph flows top to bottom; click for left to right (L)" : "Graph flows left to right; click for top to bottom (L)";
+  or.replaceChildren(icon(vertical ? "flow-down" : "flow-right"));
   const hd = $("#hide-done");
   hd.classList.toggle("on", prefs.hideDone);
   hd.setAttribute("aria-pressed", prefs.hideDone ? "true" : "false");
@@ -951,6 +1214,7 @@ function renderProblems() {
 // Graph view ---------------------------------------------------------------
 
 function layout(tasks) {
+  const vertical = prefs.orient === "vertical";
   const vis = new Map(tasks.map((t) => [key(t.id), t]));
   const depsOf = new Map(tasks.map((t) => [key(t.id), t.deps.map(key).filter((d) => vis.has(d))]));
   const kids = new Map(tasks.map((t) => [key(t.id), []]));
@@ -968,29 +1232,44 @@ function layout(tasks) {
     cells.get(d).push(key(t.id));
   }
 
-  const width = LANE_PAD * 2 + (maxDepth + 1) * CW + maxDepth * GAP_X;
-  let top = 0;
+  // Depth runs along the flow (right or down); lanes and the cards of a cell stack across it.
+  const GAP_X = prefs.levelGap;
+  const depthSpan = (maxDepth + 1) * (vertical ? CH : CW) + maxDepth * GAP_X;
+  let offset = 0;
   for (const l of lanes) {
-    const rows = Math.max(0, ...[...l.cells.values()].map((c) => c.length));
-    l.top = top;
-    l.height = LANE_HEAD + (rows ? rows * CH + (rows - 1) * GAP_Y : 54) + LANE_PAD;
-    l.width = width;
+    const n = Math.max(0, ...[...l.cells.values()].map((c) => c.length));
+    if (vertical) {
+      l.left = offset;
+      l.top = 0;
+      l.width = LANE_PAD * 2 + (n ? n * CW + (n - 1) * GAP_Y : CW);
+      l.height = LANE_HEAD + depthSpan + LANE_PAD;
+      offset += l.width + LANE_GAP;
+    } else {
+      l.left = 0;
+      l.top = offset;
+      l.width = LANE_PAD * 2 + depthSpan;
+      l.height = LANE_HEAD + (n ? n * CH + (n - 1) * GAP_Y : 54) + LANE_PAD;
+      offset += l.height + LANE_GAP;
+    }
     const members = tasks.filter((t) => laneOf(t) === l);
     l.total = board.tasks.filter((t) => (l.id ? t.group === l.id : !knownGroups.has(t.group))).length;
     l.done = board.tasks.filter((t) => t.state === "done" && (l.id ? t.group === l.id : !knownGroups.has(t.group))).length;
     l.empty = !members.length;
-    top += l.height + LANE_GAP;
   }
+  const stacked = Math.max(0, offset - LANE_GAP);
+  const width = vertical ? stacked : LANE_PAD * 2 + depthSpan;
+  const height = vertical ? (lanes.length ? LANE_HEAD + depthSpan + LANE_PAD : 0) : stacked;
 
   const pos = new Map();
   const place = () => {
-    for (const l of lanes) for (const [d, ids] of l.cells) ids.forEach((k, i) => pos.set(k, {
-      x: LANE_PAD + d * (CW + GAP_X), y: l.top + LANE_HEAD + i * (CH + GAP_Y),
-    }));
+    for (const l of lanes) for (const [d, ids] of l.cells) ids.forEach((k, i) => pos.set(k, vertical
+      ? { x: l.left + LANE_PAD + i * (CW + GAP_Y), y: LANE_HEAD + d * (CH + GAP_X) }
+      : { x: LANE_PAD + d * (CW + GAP_X), y: l.top + LANE_HEAD + i * (CH + GAP_Y) }));
   };
   place();
-  // Barycenter sweeps: order cards in each cell by the height of their neighbours.
-  const bary = (k, nbrs) => (nbrs.length ? nbrs.reduce((s, n) => s + pos.get(n).y, 0) / nbrs.length : pos.get(k).y);
+  // Barycenter sweeps: order cards in each cell by where their neighbours sit across the flow.
+  const across = vertical ? "x" : "y";
+  const bary = (k, nbrs) => (nbrs.length ? nbrs.reduce((s, n) => s + pos.get(n)[across], 0) / nbrs.length : pos.get(k)[across]);
   for (let pass = 0; pass < 4; pass++) {
     const down = pass % 2 === 0;
     for (const l of lanes) {
@@ -1001,8 +1280,22 @@ function layout(tasks) {
     }
     place();
   }
-  return { pos, lanes, width, height: Math.max(0, top - LANE_GAP), depsOf };
+  return { pos, lanes, width, height, depsOf, vertical };
 }
+
+const outPort = (p, vertical) => (vertical ? { x: p.x + CW / 2, y: p.y + CH } : { x: p.x + CW, y: p.y + CH / 2 });
+const inPort = (p, vertical) => (vertical ? { x: p.x + CW / 2, y: p.y } : { x: p.x, y: p.y + CH / 2 });
+
+function edgePath(a, b, vertical, bend, gap = 0) {
+  if (vertical) {
+    const d = Math.max(bend, Math.abs(b.y - a.y) * 0.5);
+    return `M${a.x},${a.y} C${a.x},${a.y + d} ${b.x},${b.y - d} ${b.x},${b.y - gap}`;
+  }
+  const d = Math.max(bend, Math.abs(b.x - a.x) * 0.5);
+  return `M${a.x},${a.y} C${a.x + d},${a.y} ${b.x - d},${b.y} ${b.x - gap},${b.y}`;
+}
+
+const edgeFor = (hit) => document.querySelector(`#edge-layer path[data-from="${CSS.escape(hit.dataset.from)}"][data-to="${CSS.escape(hit.dataset.to)}"]`);
 
 const cardEls = new Map();
 let lastLayout = null;
@@ -1023,15 +1316,23 @@ function cardFoot(t) {
   return h("div", { class: "card-foot" }, left, notes ? h("span", { title: `${notes} note${notes > 1 ? "s" : ""}` }, icon("note"), ` ${notes}`) : null);
 }
 
+function yoloTag(t) {
+  const via = yoloVia(t);
+  if (!via) return null;
+  if (same(via, t.id) && t.yolo) return h("span", { class: "yolo-tag", title: "YOLO: agents start and finish this task and everything it depends on without approval or review" }, icon("zap"), "YOLO");
+  return h("span", { class: "yolo-mark", title: `Covered by YOLO on ${via}: no approval or review needed` }, icon("zap"));
+}
+
 function fillCard(el, t) {
   const vs = vstate(t);
   el.className = `card s-${vs}${same(ui.selected, t.id) ? " sel" : ""}${el.classList.contains("enter") ? " enter" : ""}${el.classList.contains("flash") ? " flash" : ""}`;
   el.dataset.id = t.id;
   el.replaceChildren(...compact(
-    h("div", { class: "card-head" }, h("span", { class: "cid" }, t.id), h("span", { class: "badge" }, LABEL[vs])),
+    h("div", { class: "card-head" }, h("span", { class: "cid" }, t.id), h("span", { class: "head-end" }, yoloTag(t), h("span", { class: "badge" }, LABEL[vs]))),
     h("div", { class: "card-title", title: t.title }, t.title),
     cardFoot(t),
-    store.readOnly ? null : h("div", { class: "handle", title: "Drag onto another card: that card will depend on this one" }),
+    store.readOnly ? null : h("div", { class: "handle in", title: "Drag onto another card: this card will depend on that one" }),
+    store.readOnly ? null : h("div", { class: "handle out", title: "Drag onto another card: that card will depend on this one" }),
   ));
 }
 
@@ -1042,9 +1343,10 @@ function renderGraph() {
   const world = $("#world");
   world.style.width = `${L.width}px`;
   world.style.height = `${L.height}px`;
+  world.classList.toggle("vertical", L.vertical);
 
   $("#lanes").replaceChildren(...L.lanes.map((l) => h("div", {
-    class: "lane", style: `top:${l.top}px;height:${l.height}px;width:${l.width}px`,
+    class: "lane", "data-group": l.id || "", style: `left:${l.left}px;top:${l.top}px;height:${l.height}px;width:${l.width}px`,
   },
   h("div", { class: "lane-head" },
     h("span", { class: "lane-swatch", style: `background:${l.color}` }),
@@ -1057,18 +1359,20 @@ function renderGraph() {
   const svg = $("#edges");
   svg.setAttribute("width", L.width);
   svg.setAttribute("height", L.height);
-  let paths = "";
+  let paths = "", hits = "";
   for (const t of tasks) {
     const pt = L.pos.get(key(t.id));
     for (const d of L.depsOf.get(key(t.id))) {
-      const pd = L.pos.get(d), dep = IX.get(d);
-      const x1 = pd.x + CW, y1 = pd.y + CH / 2, x2 = pt.x, y2 = pt.y + CH / 2;
-      const dx = Math.max(36, Math.abs(x2 - x1) * 0.5);
+      const dep = IX.get(d);
       const cls = dep.state === "done" ? "met" : "open";
-      paths += `<path class="edge ${cls}" data-from="${escHtml(dep.id)}" data-to="${escHtml(t.id)}" marker-end="url(#m-${cls})" d="M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2 - 1},${y2}"/>`;
+      const path = edgePath(outPort(L.pos.get(d), L.vertical), inPort(pt, L.vertical), L.vertical, 36, ARROW);
+      const ends = `data-from="${escHtml(dep.id)}" data-to="${escHtml(t.id)}"`;
+      paths += `<path class="edge ${cls}" ${ends} marker-end="url(#m-${cls})" d="${path}"/>`;
+      hits += `<path ${ends} d="${path}"/>`;
     }
   }
   $("#edge-layer").innerHTML = paths;
+  $("#edge-hits").innerHTML = hits;
 
   const seen = new Set();
   for (const t of tasks) {
@@ -1124,14 +1428,16 @@ function lineage(id) {
 
 function applyFocus() {
   const world = $("#world");
-  const focus = ui.hover || (ui.selected && cardEls.has(key(ui.selected)) ? ui.selected : null);
-  world.classList.toggle("focusing", !!focus);
-  if (!focus) {
+  const link = ui.link;
+  const focus = link ? null : ui.hover || (ui.selected && cardEls.has(key(ui.selected)) ? ui.selected : null);
+  world.classList.toggle("focusing", !!(link || focus));
+  if (!link && !focus) {
     for (const el of cardEls.values()) el.classList.remove("related");
     for (const p of document.querySelectorAll("#edge-layer path")) { p.classList.remove("related"); p.setAttribute("marker-end", `url(#m-${p.classList.contains("met") ? "met" : "open"})`); }
     return;
   }
-  const { up, down } = lineage(focus);
+  // A connection lights up just its two tasks and the arrow between them.
+  const { up, down } = link ? { up: new Set([link.from, link.to]), down: new Set() } : lineage(focus);
   for (const [k, el] of cardEls) el.classList.toggle("related", up.has(k) || down.has(k));
   for (const p of document.querySelectorAll("#edge-layer path")) {
     const a = key(p.dataset.from), b = key(p.dataset.to);
@@ -1201,14 +1507,15 @@ function setupGraphInput() {
     if (e.button !== 0 || e.target.closest("button")) return;
     const handle = e.target.closest(".handle");
     if (handle) {
-      const from = handle.parentElement.dataset.id, p = lastLayout.pos.get(key(from));
+      const from = handle.parentElement.dataset.id, p = lastLayout.pos.get(key(from)), incoming = handle.classList.contains("in");
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("class", "edge temp");
       $("#edge-layer").append(path);
-      drag = { mode: "connect", from, path, x1: p.x + CW, y1: p.y + CH / 2, target: null };
+      const start = incoming ? inPort(p, lastLayout.vertical) : outPort(p, lastLayout.vertical);
+      drag = { mode: "connect", from, incoming, path, start, target: null };
       world.classList.add("connecting");
     } else {
-      drag = { mode: "pan", sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y, moved: false, card: e.target.closest(".card") };
+      drag = { mode: "pan", sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y, moved: false, card: e.target.closest(".card"), edge: e.target.closest("#edge-hits path") };
     }
     try { vp.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
     e.preventDefault();
@@ -1225,8 +1532,7 @@ function setupGraphInput() {
       applyView(false);
     } else {
       const w = toWorld(e);
-      const dx = Math.max(30, Math.abs(w.x - drag.x1) * 0.5);
-      drag.path.setAttribute("d", `M${drag.x1},${drag.y1} C${drag.x1 + dx},${drag.y1} ${w.x - dx},${w.y} ${w.x},${w.y}`);
+      drag.path.setAttribute("d", drag.incoming ? edgePath(w, drag.start, lastLayout.vertical, 30) : edgePath(drag.start, w, lastLayout.vertical, 30));
       const over = document.elementFromPoint(e.clientX, e.clientY);
       const card = over && over.closest(".card");
       const target = card && !same(card.dataset.id, drag.from) ? card : null;
@@ -1247,14 +1553,18 @@ function setupGraphInput() {
       world.classList.remove("connecting");
       if (d.target) {
         d.target.classList.remove("drop-target");
-        if (e.type === "pointerup") commit(ops.addDep(d.target.dataset.id, d.from)).then((ok) => ok && toast(`${d.target.dataset.id} now depends on ${d.from}`));
+        const [task, dep] = d.incoming ? [d.from, d.target.dataset.id] : [d.target.dataset.id, d.from];
+        if (e.type === "pointerup") commit(ops.addDep(task, dep)).then((ok) => ok && toast(`${task} now depends on ${dep}`));
       }
     } else if (!d.moved && e.type === "pointerup") {
-      select(d.card ? d.card.dataset.id : null);
+      if (d.edge && !d.card) showEdgeMenu(d.edge, e.clientX, e.clientY);
+      else select(d.card ? d.card.dataset.id : null);
     }
   };
   vp.addEventListener("pointerup", end);
   vp.addEventListener("pointercancel", end);
+  $("#edge-hits").addEventListener("pointerover", (e) => { if (!drag && !menuEl && e.target.dataset.from) edgeFor(e.target)?.classList.add("hover"); });
+  $("#edge-hits").addEventListener("pointerout", (e) => { if (e.target.dataset.from) edgeFor(e.target)?.classList.remove("hover"); });
   vp.addEventListener("wheel", (e) => {
     e.preventDefault();
     const r = vp.getBoundingClientRect();
@@ -1315,7 +1625,7 @@ function kanbanCard(t) {
     class: `kcard s-${vs}${same(ui.selected, t.id) ? " sel" : ""}`, "data-id": t.id, draggable: store.readOnly ? null : "true",
     onclick: () => select(t.id),
   },
-  h("div", { class: "card-head" }, h("span", { class: "cid" }, t.id), g ? h("span", { class: "gchip", style: `--g:${GROUP_COLORS[board.groups.indexOf(g) % GROUP_COLORS.length]}` }, h("i"), g.name) : null),
+  h("div", { class: "card-head" }, h("span", { class: "cid" }, t.id), h("span", { class: "head-end" }, yoloTag(t), g ? h("span", { class: "gchip", style: `--g:${GROUP_COLORS[board.groups.indexOf(g) % GROUP_COLORS.length]}` }, h("i"), g.name) : null)),
   h("div", { class: "card-title" }, t.title),
   cardFoot(t));
   el.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/kanvas-id", t.id); e.dataTransfer.effectAllowed = "move"; el.classList.add("dragging"); });
@@ -1342,17 +1652,49 @@ function depRow(d, onRemove) {
     onRemove && !store.readOnly ? h("button", { title: "Remove dependency", "aria-label": "Remove dependency", onclick: (e) => { e.stopPropagation(); onRemove(); } }, icon("x")) : null);
 }
 
-function stateActions(t) {
-  const vs = vstate(t), id = t.id;
-  const btn = (label, ic, fn, cls = "") => h("button", { class: cls, onclick: fn }, icon(ic), label);
-  switch (vs) {
-    case "proposed": return [btn("Approve", "check", () => commit(ops.state(id, "todo")), "primary"), btn("Reject", "trash", () => removeTask(t), "danger")];
-    case "todo": return [btn("Start", "play", () => commit(ops.state(id, "doing")), "primary")];
-    case "doing": return [btn("Send to review", "check", () => commit(ops.state(id, "review")), "primary"), btn("Mark done", "check", () => commit(ops.state(id, "done"))), btn("Pause", "pause", () => commit(ops.state(id, "todo")))];
-    case "review": return [btn("Mark done", "check", () => commit(ops.state(id, "done")), "primary"), btn("Send back", "back", () => sendBack(t))];
-    case "done": return [btn("Reopen", "back", () => commit(ops.state(id, "todo")))];
+// `asks` marks moves that open a dialog first.
+function stateMoves(t) {
+  const to = (state) => () => commit(ops.state(t.id, state));
+  switch (vstate(t)) {
+    case "proposed": return [{ label: "Approve", icon: "check", run: to("todo"), primary: true }, { label: "Reject", icon: "trash", run: () => removeTask(t), danger: true, asks: true }];
+    case "todo": return [{ label: "Start", icon: "play", run: to("doing"), primary: true }];
+    case "doing": return [{ label: "Send to review", icon: "check", run: to("review"), primary: true }, { label: "Mark done", icon: "check", run: to("done") }, { label: "Pause", icon: "pause", run: to("todo") }];
+    case "review": return [{ label: "Mark done", icon: "check", run: to("done"), primary: true }, { label: "Send back", icon: "back", run: () => sendBack(t), asks: true }];
+    case "done": return [{ label: "Reopen", icon: "back", run: to("todo") }];
     default: return [];
   }
+}
+
+function stateActions(t) {
+  const ya = yoloAction(t);
+  return [
+    ...stateMoves(t).map((m) => h("button", { class: m.primary ? "primary" : m.danger ? "danger" : "", onclick: m.run }, icon(m.icon), m.label)),
+    ya ? h("button", { class: "yolo-btn", onclick: ya.run }, icon(ya.icon), ya.label) : null,
+  ];
+}
+
+function yoloAction(t) {
+  if (t.yolo) return { label: "Turn off YOLO", icon: "zap", run: () => toggleYolo(t) };
+  if (t.state === "done") return null;
+  return { label: "YOLO up to here…", icon: "zap", run: () => toggleYolo(t) };
+}
+
+async function toggleYolo(t) {
+  if (t.yolo) {
+    if (await commit(ops.yolo(t.id, false))) toast(`YOLO is off for ${t.id}`);
+    return;
+  }
+  const chain = [...upstreamOf(board, t.id)].map(get).filter((x) => x && x.state !== "done");
+  const others = chain.filter((x) => !same(x.id, t.id)).length;
+  const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const proposals = chain.filter((x) => x.state === "proposed").length, reviews = chain.filter((x) => x.state === "review").length;
+  const effects = [proposals ? `${count(proposals, "proposal")} will be approved` : null, reviews ? `${count(reviews, "task")} waiting for review will be marked done` : null].filter(Boolean);
+  const data = await modal(`YOLO up to ${t.id}?`, [
+    h("p", {}, `Agents may start and finish ${t.id}${others ? ` and the ${count(others, "unfinished task")} it depends on` : ""} without asking you. Finished tasks go straight to Done, with the agent's summary as a note.`),
+    effects.length ? h("p", {}, `Right now, ${effects.join(" and ")}.`) : null,
+    h("p", { class: "muted" }, "Tasks an agent links into this chain later are covered too. Ctrl+Z undoes this, and the same menu turns YOLO off."),
+  ], { ok: "YOLO" });
+  if (data && await commit(ops.yolo(t.id, true))) toast(`YOLO is on up to ${t.id}`);
 }
 
 function renderPanel() {
@@ -1421,7 +1763,10 @@ function renderPanel() {
       h("div", { class: "p-meta" }, h("label", {}, "Group", groupSel), h("label", {}, "State", stateSel)),
       ro ? null : h("div", { class: "actions" }, stateActions(t)),
       vs === "blocked" ? h("div", { class: "callout s-blocked" }, icon("lock"), h("span", {}, "Waiting on ", waits.map((d, i) => [i ? ", " : "", h("b", {}, d)]), ". It becomes ready when they are done.")) : null,
-      t.state === "proposed" && !ro ? h("div", { class: "callout s-proposed" }, icon("spark"), h("span", {}, "Proposed by an agent. Approve it to make it available for work, or reject it.")) : null,
+      yoloVia(t) ? h("div", { class: "callout yolo" }, icon("zap"), same(yoloVia(t), t.id)
+        ? h("span", {}, "YOLO is on: agents may start and finish this task and everything it depends on without approval or review. Finished work goes straight to Done.")
+        : h("span", {}, "Covered by YOLO on ", h("a", { class: "tref", href: `#${yoloVia(t)}`, "data-ref": yoloVia(t) }, yoloVia(t)), ": agents may start and finish it without approval or review.")) : null,
+      vs === "proposed" && !ro ? h("div", { class: "callout s-proposed" }, icon("spark"), h("span", {}, "Proposed by an agent. Approve it to make it available for work, or reject it.")) : null,
       t.state === "review" && !ro ? h("div", { class: "callout s-review" }, icon("check"), h("span", {}, "Finished by the agent. Check the latest note, then mark it done or send it back with feedback.")) : null,
       h("section", {},
         h("div", { class: "section-head" }, "Description", ro || ui.editingDesc ? null : h("button", { onclick: () => { ui.editingDesc = true; ui.focusDesc = true; renderPanel(); } }, icon("edit"), "Edit")),
@@ -1499,16 +1844,17 @@ function modal(title, content, { ok = "Save", danger = false, cancel = "Cancel" 
   });
 }
 
-async function newTaskDialog(group) {
+async function newTaskDialog(group, depsText) {
   if (store.readOnly) return;
-  const fallback = group !== undefined ? group : (ui.selected && get(ui.selected) ? get(ui.selected).group : (board.groups[0] || {}).id);
+  const sel = ui.selected && get(ui.selected);
+  const fallback = group !== undefined ? group : (sel ? sel.group : (board.groups[0] || {}).id);
   const data = await modal("New task", [
     h("label", { class: "field" }, "Title", h("input", { name: "title", required: true, autocomplete: "off", placeholder: "What needs to happen?" })),
     h("label", { class: "field" }, "Group", h("select", { name: "group" }, h("option", { value: "" }, "No group"),
       board.groups.map((g) => h("option", { value: g.id, selected: g.id === fallback }, `${g.name} (${g.id})`)))),
     h("label", { class: "field" }, h("span", {}, "Description ", h("span", { class: "hint" }, "Markdown")), h("textarea", { name: "desc", rows: 4 })),
     h("label", { class: "field" }, h("span", {}, "Depends on ", h("span", { class: "hint" }, "IDs, separated by spaces or commas")),
-      h("input", { name: "deps", list: "task-ids", autocomplete: "off", value: ui.selected && get(ui.selected) ? get(ui.selected).id : "" })),
+      h("input", { name: "deps", list: "task-ids", autocomplete: "off", value: depsText !== undefined ? depsText : sel ? sel.id : "" })),
   ], { ok: "Create task" });
   if (!data) return;
   const out = {};
@@ -1517,6 +1863,32 @@ async function newTaskDialog(group) {
   if (unknown.length) return toast(`Unknown task ${unknown.join(", ")}`, "error");
   const ok = await commit(ops.addTask({ title: data.get("title").replace(/\s+/g, " ").trim(), group: data.get("group"), desc: data.get("desc").trim(), deps }, out));
   if (ok) select(out.id);
+}
+
+async function addDepDialog(t) {
+  const data = await modal(`${t.id} depends on`, [
+    h("label", { class: "field" }, "Task ID", h("input", { name: "dep", list: "task-ids", required: true, autocomplete: "off", placeholder: "Type an ID or pick from the list" })),
+  ], { ok: "Add dependency" });
+  if (!data) return;
+  const ref = String(data.get("dep")).trim().split(/\s/)[0], dep = get(ref);
+  if (!dep) return toast(`No task ${ref}`, "error");
+  commit(ops.addDep(t.id, dep.id)).then((ok) => ok && toast(`${t.id} now depends on ${dep.id}`));
+}
+
+async function newGroupDialog() {
+  const taken = board.groups.map((g) => g.id);
+  const name = h("input", { name: "name", required: true, autocomplete: "off", placeholder: "e.g. Backend" });
+  const prefix = h("input", { name: "prefix", maxlength: 6, autocomplete: "off" });
+  let touched = false;
+  name.addEventListener("input", () => { if (!touched) prefix.value = name.value.trim() ? suggestPrefix(name.value, taken) : ""; });
+  prefix.addEventListener("input", () => { touched = true; prefix.value = prefix.value.toUpperCase(); });
+  const data = await modal("New group", [
+    h("label", { class: "field" }, "Name", name),
+    h("label", { class: "field" }, h("span", {}, "ID prefix ", h("span", { class: "hint" }, "starts every task ID in the group")), prefix),
+  ], { ok: "Create group" });
+  if (!data) return;
+  const n = String(data.get("name")).replace(/\s+/g, " ").trim();
+  if (n) commit(ops.addGroup(n, (String(data.get("prefix")).trim() || suggestPrefix(n, taken)).toUpperCase()));
 }
 
 function groupsDialog() {
@@ -1558,11 +1930,138 @@ function groupsDialog() {
 }
 
 function helpDialog() {
-  const keys = [["N", "New task"], ["/", "Filter tasks"], ["G / B", "Graph or board view"], ["H", "Hide or show finished tasks"], ["F", "Fit the graph to the screen"], ["+ / -", "Zoom"], ["Esc", "Close the panel or clear the filter"], ["Ctrl+Enter", "Save the text you are editing"]];
+  const keys = [["N", "New task"], ["/", "Filter tasks"], ["G / B", "Graph or board view"], ["L", "Graph left to right or top to bottom"], ["H", "Hide or show finished tasks"], ["F", "Fit the graph to the screen"], ["+ / -", "Zoom"], ["[ / ]", "Compress or extend the graph"], ["Esc", "Close the panel or clear the filter"], ["Right-click", "Actions for a card, a dependency or empty space"], ["Ctrl+Z", "Undo your last change"], ["Ctrl+Shift+Z / Ctrl+Y", "Redo"], ["Ctrl+Enter", "Save the text you are editing"]];
   modal("Keyboard shortcuts", [
     h("div", { class: "keys" }, keys.map(([k, v]) => [h("span", {}, k.split(" / ").map((x, i) => [i ? " / " : "", h("kbd", {}, x)])), h("span", {}, v)])),
     h("p", {}, "Agents work through ", h("code", {}, "kanvas.py"), "; their changes appear here within a second."),
   ], { ok: "Close", cancel: null });
+}
+
+// Context menus ---------------------------------------------------------------
+
+let menuEl = null;
+
+function closeMenu() {
+  if (!menuEl) return;
+  menuEl.remove();
+  menuEl = null;
+  for (const el of document.querySelectorAll(".menu-target")) el.classList.remove("menu-target");
+  if (ui.link) { ui.link = null; applyFocus(); }
+}
+
+// Items are { label, icon, run, danger }, { head }, { node } or "sep".
+function openMenu(x, y, items, target) {
+  closeMenu();
+  const list = items.filter(Boolean).filter((it, i, all) => !(it === "sep" && (i === 0 || i === all.length - 1 || all[i - 1] === "sep")));
+  menuEl = h("div", { class: "ctx-menu", role: "menu", tabindex: "-1" }, list.map((it) => {
+    if (it === "sep") return h("div", { class: "sep", role: "separator" });
+    if (it.head) return h("div", { class: "ctx-head" }, it.head);
+    if (it.node) return it.node;
+    return h("button", { role: "menuitem", class: it.danger ? "danger" : null, onclick: () => { closeMenu(); it.run(); } }, icon(it.icon), h("span", { class: "lbl" }, it.label));
+  }));
+  const buttons = [...menuEl.querySelectorAll("button")];
+  menuEl.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    const down = e.key === "ArrowDown", n = buttons.length, i = buttons.indexOf(document.activeElement);
+    if (e.key === "Escape" || e.key === "Tab") { e.preventDefault(); closeMenu(); }
+    else if (down || e.key === "ArrowUp") { e.preventDefault(); buttons[i < 0 ? (down ? 0 : n - 1) : (i + (down ? 1 : n - 1)) % n].focus(); }
+  });
+  menuEl.addEventListener("contextmenu", (e) => e.preventDefault());
+  document.body.append(menuEl);
+  const r = menuEl.getBoundingClientRect();
+  menuEl.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 4))}px`;
+  menuEl.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 4))}px`;
+  if (target) target.classList.add("menu-target");
+  menuEl.focus({ preventScroll: true });
+}
+
+function cardMenu(t) {
+  const open = { label: `Open ${t.id}`, icon: "open", run: () => select(t.id) };
+  const copyId = { label: "Copy ID", icon: "copy", run: () => copy(t.id) };
+  if (store.readOnly) return [open, copyId];
+  return [
+    open,
+    "sep",
+    ...stateMoves(t).filter((m) => !m.danger).map((m) => ({ ...m, label: m.asks ? `${m.label}…` : m.label })),
+    yoloAction(t),
+    "sep",
+    { label: "New task that depends on this…", icon: "plus", run: () => newTaskDialog(t.group, t.id) },
+    { label: "Add dependency…", icon: "link", run: () => addDepDialog(t) },
+    t.deps.length ? { head: "Remove dependency on" } : null,
+    ...t.deps.map((d) => {
+      const dep = get(d);
+      return { label: [h("span", { class: "cid" }, d), dep ? dep.title : "missing task"], icon: "x", run: () => commit(ops.removeDep(t.id, d)) };
+    }),
+    "sep",
+    copyId,
+    { label: t.state === "proposed" ? "Reject…" : "Delete…", icon: "trash", danger: true, run: () => removeTask(t) },
+  ];
+}
+
+function edgeMenu(from, to) {
+  const task = (t) => h("button", { class: `ctx-task s-${vstate(t)}`, role: "menuitem", title: `Open ${t.id} · ${LABEL[vstate(t)]}`, onclick: () => { closeMenu(); select(t.id); } },
+    h("span", { class: "dot" }), h("span", { class: "cid" }, t.id), h("span", { class: "t" }, t.title));
+  return [
+    { node: h("div", { class: "ctx-link" },
+      h("div", { class: "ctx-head" }, "Connection between two tasks"),
+      task(from),
+      h("div", { class: "ctx-link-arrow" }, icon("down"), "must be done before"),
+      task(to)) },
+    store.readOnly ? null : "sep",
+    store.readOnly ? null : {
+      label: "Remove connection", icon: "unlink", danger: true,
+      run: () => commit(ops.removeDep(to.id, from.id)).then((ok) => ok && toast(`${to.id} no longer waits for ${from.id}`)),
+    },
+  ];
+}
+
+function showEdgeMenu(hit, x, y) {
+  const from = get(hit.dataset.from), to = get(hit.dataset.to);
+  if (!from || !to) return;
+  openMenu(x, y, edgeMenu(from, to), edgeFor(hit));
+  ui.link = { from: key(from.id), to: key(to.id) };
+  applyFocus();
+}
+
+function spaceMenu(group) {
+  const g = group ? board.groups.find((x) => x.id === group) : null;
+  const label = group === undefined ? "New task…" : g ? `New task in ${g.name}…` : "New ungrouped task…";
+  return [
+    { label, icon: "plus", run: () => newTaskDialog(group, "") },
+    { label: "New group…", icon: "folder", run: newGroupDialog },
+    prefs.view === "graph" ? "sep" : null,
+    prefs.view === "graph" ? { label: "Fit to screen", icon: "fit", run: () => fit(true) } : null,
+  ];
+}
+
+function setupMenus() {
+  document.addEventListener("contextmenu", (e) => {
+    closeMenu();
+    const el = e.target;
+    if (!board || !el.closest("#graph-view, #board-view") || el.closest("button, input, a, .zoombar, .empty")) return;
+    let items = null, target = null;
+    const card = el.closest(".card[data-id], .kcard[data-id]");
+    const hit = el.closest("#edge-hits path");
+    if (card && get(card.dataset.id)) {
+      items = cardMenu(get(card.dataset.id));
+      target = card;
+    } else if (hit) {
+      e.preventDefault();
+      showEdgeMenu(hit, e.clientX, e.clientY);
+      return;
+    } else if (!store.readOnly) {
+      const lane = el.closest(".lane");
+      items = spaceMenu(lane ? lane.dataset.group : undefined);
+    }
+    if (!items) return;
+    e.preventDefault();
+    openMenu(e.clientX, e.clientY, items, target);
+  });
+  document.addEventListener("pointerdown", (e) => { if (menuEl && !menuEl.contains(e.target)) closeMenu(); }, true);
+  document.addEventListener("scroll", closeMenu, true);
+  $("#viewport").addEventListener("wheel", closeMenu, { passive: true });
+  window.addEventListener("resize", closeMenu);
+  window.addEventListener("blur", closeMenu);
 }
 
 // Markdown (a small, safe subset) ---------------------------------------------------
@@ -1720,6 +2219,12 @@ function setupChrome() {
   $("#theme").onclick = () => { prefs.theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; savePrefs(); setTheme(prefs.theme); };
   $("#view-graph").onclick = () => setView("graph");
   $("#view-board").onclick = () => setView("board");
+  $("#orient").onclick = toggleOrient;
+  prefs.levelGap = Math.min(+$("#spread").max, Math.max(+$("#spread").min, +prefs.levelGap || 70));
+  $("#spread").value = prefs.levelGap;
+  $("#spread").oninput = (e) => setLevelGap(+e.target.value);
+  $("#undo").onclick = () => step("undo");
+  $("#redo").onclick = () => step("redo");
   $("#hide-done").onclick = toggleDone;
   $("#new-task").onclick = () => newTaskDialog();
   $("#groups-btn").onclick = groupsDialog;
@@ -1737,12 +2242,20 @@ function setupChrome() {
     setTimeout(() => { if (ui.panelStale) renderPanel(); }, 0);
   });
   document.addEventListener("keydown", (e) => {
-    if (!board || e.ctrlKey || e.metaKey || e.altKey || document.querySelector("dialog[open]")) return;
+    if (!board || document.querySelector("dialog[open]")) return;
+    // Inside text fields, Ctrl+Z stays the browser's own text undo.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.target.closest("input, textarea, select, [contenteditable]")) {
+      const k = e.key.toLowerCase();
+      if (k === "z" || k === "y") { e.preventDefault(); step(k === "y" || e.shiftKey ? "redo" : "undo"); }
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.closest("input, textarea, select, [contenteditable]")) return;
     const r = $("#viewport").getBoundingClientRect();
     const actions = {
       "/": () => search.focus(), n: () => newTaskDialog(), g: () => setView("graph"), b: () => setView("board"),
-      h: toggleDone, f: () => fit(true), "?": helpDialog,
+      h: toggleDone, l: toggleOrient, f: () => fit(true), "?": helpDialog,
+      "[": () => setLevelGap(prefs.levelGap - 30), "]": () => setLevelGap(prefs.levelGap + 30),
       "+": () => zoomAt(1.2, r.width / 2, r.height / 2), "=": () => zoomAt(1.2, r.width / 2, r.height / 2), "-": () => zoomAt(1 / 1.2, r.width / 2, r.height / 2),
       Escape: () => { if (ui.selected) select(null); else if (ui.states.size || ui.search) { ui.states.clear(); ui.search = ""; search.value = ""; render(); } },
     };
@@ -1753,6 +2266,7 @@ function setupChrome() {
   window.addEventListener("hashchange", () => { const id = decodeURIComponent(location.hash.slice(1)); if (board && id && get(id) && !same(id, ui.selected)) select(id); });
   setInterval(() => { if (board && prefs.view === "graph") for (const t of board.tasks) if (t.notes.length && cardEls.has(key(t.id))) fillCard(cardEls.get(key(t.id)), t); }, 60000);
   setupGraphInput();
+  setupMenus();
 }
 
 function setView(v) {
@@ -1760,6 +2274,29 @@ function setView(v) {
   savePrefs();
   render();
   if (v === "graph" && !fitted) fit(false);
+}
+
+function toggleOrient() {
+  prefs.orient = prefs.orient === "vertical" ? "horizontal" : "vertical";
+  savePrefs();
+  fitted = false;
+  render();
+}
+
+// Keeps the point at the middle of the viewport in place while the graph stretches along the flow.
+function setLevelGap(gap) {
+  const input = $("#spread");
+  gap = Math.min(+input.max, Math.max(+input.min, Math.round(gap / 10) * 10));
+  input.value = gap;
+  if (gap === prefs.levelGap) return;
+  const vertical = prefs.orient === "vertical", axis = vertical ? "y" : "x", cell = vertical ? CH : CW;
+  const vp = $("#viewport").getBoundingClientRect(), mid = (vertical ? vp.height : vp.width) / 2;
+  const at = (mid - view[axis]) / view.k;
+  view[axis] = mid - at * (cell + gap) / (cell + prefs.levelGap) * view.k;
+  prefs.levelGap = gap;
+  savePrefs();
+  render();
+  applyView(false);
 }
 
 function toggleDone() {

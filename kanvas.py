@@ -38,7 +38,7 @@ STATES = ("proposed", "todo", "doing", "review", "done")
 ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*-\d+$")
 PREFIX_RE = re.compile(r"^[A-Z][A-Z0-9]{0,5}$")
 UNGROUPED_PREFIX = "G"
-TASK_KEYS = ("id", "title", "state", "group", "deps", "desc", "notes")
+TASK_KEYS = ("id", "title", "state", "group", "deps", "yolo", "desc", "notes")
 REQUIRED_TASK_KEYS = ("id", "title", "state")
 GROUP_KEYS = ("id", "name")
 NOTE_KEYS = ("at", "by", "text")
@@ -106,6 +106,10 @@ def parse_board(text):
         t["desc"] = str(t.get("desc") or "")
         deps = t.get("deps")
         t["deps"] = [str(d) for d in deps] if isinstance(deps, list) else []
+        if t.get("yolo"):
+            t["yolo"] = True
+        else:
+            t.pop("yolo", None)
         notes = t.get("notes")
         t["notes"] = [n for n in notes if isinstance(n, dict)] if isinstance(notes, list) else []
     return board
@@ -270,9 +274,38 @@ def unmet_deps(task, tasks):
     return out
 
 
-def view_state(task, tasks):
-    """Stored state, with 'blocked' derived for to-do tasks waiting on deps."""
+def yolo_cover(board):
+    """Map task ID (upper case) -> ID of the YOLO task covering it.
+
+    A human sets `yolo` on a task; it covers that task and everything it
+    transitively depends on. Covered proposals count as approved, and
+    finishing a covered task marks it done without review.
+    """
+    tasks = task_map(board)
+    cover = {}
+    for t in board["tasks"]:
+        if not t.get("yolo"):
+            continue
+        stack = [t["id"].upper()]
+        while stack:
+            cur = stack.pop()
+            if cur in cover:
+                continue
+            cover[cur] = t["id"]
+            d = tasks.get(cur)
+            if d:
+                stack.extend(x.upper() for x in d.get("deps", []))
+    return cover
+
+
+def view_state(task, tasks, cover=None):
+    """Stored state, with 'blocked' derived for to-do tasks waiting on deps.
+
+    Pass `cover` (from yolo_cover) to treat proposals under YOLO as approved.
+    """
     state = task.get("state", "todo")
+    if state == "proposed" and cover and task["id"].upper() in cover:
+        state = "todo"
     if state == "todo" and unmet_deps(task, tasks):
         return "blocked"
     return state
@@ -534,18 +567,27 @@ def id_width(tasks):
     return max([len(t["id"]) for t in tasks] + [5])
 
 
-def print_rows(rows, tasks_by_id, indent="  ", show_state=True):
+def yolo_mark(task, cover):
+    return "  (YOLO)" if cover and task["state"] != "done" and task["id"].upper() in cover else ""
+
+
+def print_rows(rows, tasks_by_id, indent="  ", show_state=True, cover=None):
     w = id_width(rows)
     for t in rows:
-        state = f"{view_state(t, tasks_by_id):<10}" if show_state else ""
-        print(f"{indent}{t['id']:<{w}}  {state}{t['title']}")
+        state = f"{view_state(t, tasks_by_id, cover):<10}" if show_state else ""
+        print(f"{indent}{t['id']:<{w}}  {state}{t['title']}{yolo_mark(t, cover)}")
 
 
 def print_task(board, task):
     tasks = task_map(board)
+    cover = yolo_cover(board)
     print(f"{task['id']}  {task['title']}")
-    print(f"State:  {view_state(task, tasks)}")
+    print(f"State:  {view_state(task, tasks, cover)}")
     print(f"Group:  {group_label(board, task.get('group'))}")
+    via = cover.get(task["id"].upper())
+    if via and task["state"] != "done":
+        scope = "set on this task" if via == task["id"] else f"through {via}"
+        print(f"YOLO:   {scope}; you may start it without approval, and finishing marks it done (no review)")
     if task.get("deps"):
         print("Depends on:")
         for dep in task["deps"]:
@@ -554,12 +596,12 @@ def print_task(board, task):
                 print(f"  [?] {dep}  (missing)")
             else:
                 mark = "x" if d["state"] == "done" else " "
-                print(f"  [{mark}] {d['id']}  {d['title']}  ({view_state(d, tasks)})")
+                print(f"  [{mark}] {d['id']}  {d['title']}  ({view_state(d, tasks, cover)}){yolo_mark(d, cover)}")
     blocks = [t for t in board["tasks"] if task["id"].upper() in (d.upper() for d in t.get("deps", []))]
     if blocks:
         print("Blocks:")
         for t in blocks:
-            print(f"  {t['id']}  {t['title']}  ({view_state(t, tasks)})")
+            print(f"  {t['id']}  {t['title']}  ({view_state(t, tasks, cover)}){yolo_mark(t, cover)}")
     print("\nDescription:")
     print(_indent(task.get("desc") or "(none)"))
     if task.get("notes"):
@@ -592,9 +634,10 @@ def cmd_status(args):
     path = board_path(args)
     board = load_board(path)
     tasks = task_map(board)
+    cover = yolo_cover(board)
     buckets = {k: [] for k in ("doing", "review", "todo", "blocked", "proposed", "done")}
     for t in board["tasks"]:
-        buckets.setdefault(view_state(t, tasks), []).append(t)
+        buckets.setdefault(view_state(t, tasks, cover), []).append(t)
     total = len(board["tasks"])
     print(f"{board.get('title') or 'Kanvas'}  ({rel(path)})")
     if not total:
@@ -610,6 +653,9 @@ def cmd_status(args):
             done = sum(1 for t in members if t["state"] == "done")
             parts.append(f"{g['name']} [{g['id']}] {done}/{len(members)}")
         print("Groups: " + ", ".join(parts))
+    yolo = [t["id"] for t in board["tasks"] if t.get("yolo") and t["state"] != "done"]
+    if yolo:
+        print(f"YOLO: {', '.join(yolo)}. Tasks marked (YOLO) need no approval, and finishing them marks them done.")
     sections = (
         ("doing", "Doing"),
         ("review", "Waiting for human review"),
@@ -627,6 +673,7 @@ def cmd_status(args):
             line = f"  {t['id']:<{w}}  {t['title']}"
             if key == "blocked":
                 line += f"  (waiting on {', '.join(unmet_deps(t, tasks))})"
+            line += yolo_mark(t, cover)
             print(line)
     errors, warnings = problems(board)
     if errors or warnings:
@@ -640,13 +687,14 @@ def cmd_status(args):
 def cmd_list(args):
     board = load_board(board_path(args))
     tasks = task_map(board)
+    cover = yolo_cover(board)
     rows = board["tasks"]
     groups = list(board["groups"])
     flt = (args.filter or "").strip().lower()
     if flt:
         state = "todo" if flt == "ready" else flt
         if state in STATES or state == "blocked":
-            rows = [t for t in rows if view_state(t, tasks) == state]
+            rows = [t for t in rows if view_state(t, tasks, cover) == state]
         else:
             g = find_group(board, args.filter)
             groups = [g]
@@ -665,7 +713,7 @@ def cmd_list(args):
             print()
         first = False
         print(label)
-        print_rows(members, tasks)
+        print_rows(members, tasks, cover=cover)
 
 
 def cmd_show(args):
@@ -676,11 +724,12 @@ def cmd_show(args):
 def cmd_ready(args):
     board = load_board(board_path(args))
     tasks = task_map(board)
-    ready = [t for t in board["tasks"] if view_state(t, tasks) == "todo"]
+    cover = yolo_cover(board)
+    ready = [t for t in board["tasks"] if view_state(t, tasks, cover) == "todo"]
     if ready:
-        print_rows(ready, tasks, indent="", show_state=False)
+        print_rows(ready, tasks, indent="", show_state=False, cover=cover)
         return
-    states = Counter(view_state(t, tasks) for t in board["tasks"])
+    states = Counter(view_state(t, tasks, cover) for t in board["tasks"])
     hints = [f"{states[k]} {k}" for k in ("doing", "review", "blocked", "proposed") if states[k]]
     print("No tasks ready to start." + (f" ({', '.join(hints)})" if hints else ""))
     if states["proposed"]:
@@ -692,7 +741,8 @@ def cmd_ready(args):
 def cmd_blocked(args):
     board = load_board(board_path(args))
     tasks = task_map(board)
-    blocked = [t for t in board["tasks"] if view_state(t, tasks) == "blocked"]
+    cover = yolo_cover(board)
+    blocked = [t for t in board["tasks"] if view_state(t, tasks, cover) == "blocked"]
     if not blocked:
         print("No blocked tasks.")
         return
@@ -700,7 +750,7 @@ def cmd_blocked(args):
         print(f"{t['id']}  {t['title']}")
         for dep in unmet_deps(t, tasks):
             d = tasks.get(dep.upper())
-            print(f"  waiting on {dep}  " + (f"{d['title']}  ({view_state(d, tasks)})" if d else "(missing)"))
+            print(f"  waiting on {dep}  " + (f"{d['title']}  ({view_state(d, tasks, cover)})" if d else "(missing)"))
 
 
 def cmd_check(args):
@@ -728,18 +778,19 @@ def cmd_start(args):
     def op(board):
         tasks = task_map(board)
         t = find_task(board, args.id)
-        vs = view_state(t, tasks)
+        vs = view_state(t, tasks, yolo_cover(board))
         if vs == "blocked":
             raise KanvasError(f"{t['id']} is blocked by unfinished {', '.join(unmet_deps(t, tasks))}")
         if vs != "todo":
             raise KanvasError(f"{t['id']} cannot be started: {STATE_HINTS[vs]}")
+        was = t["state"]
         t["state"] = "doing"
         if note:
             add_note(t, note, actor(args))
-        return board, t
+        return board, t, was
 
-    board, t = mutate(path, op)
-    print(f"Started {t['id']} (todo -> doing)\n")
+    board, t, was = mutate(path, op)
+    print(f"Started {t['id']} ({was} -> doing{', approved by YOLO' if was == 'proposed' else ''})\n")
     print_task(board, t)
 
 
@@ -757,11 +808,16 @@ def cmd_finish(args):
         if t["state"] != "doing":
             raise KanvasError(f"{t['id']} is {view_state(t, task_map(board))}; only tasks in progress can be finished")
         add_note(t, summary, actor(args))
-        t["state"] = "review"
-        return t
+        via = yolo_cover(board).get(t["id"].upper())
+        t["state"] = "done" if via else "review"
+        return t, via
 
-    t = mutate(path, op)
-    print(f"Finished {t['id']} (doing -> review). A human will review it.")
+    t, via = mutate(path, op)
+    if via:
+        scope = "is set on it" if via == t["id"] else f"covers it through {via}"
+        print(f"Finished {t['id']} (doing -> done). YOLO {scope}, so it skips review.")
+    else:
+        print(f"Finished {t['id']} (doing -> review). A human will review it.")
 
 
 def cmd_pause(args):
@@ -1236,6 +1292,7 @@ workflow:  proposed -> todo -> doing -> review -> done
   Agents propose, start, pause, finish, note and add dependencies.
   Humans approve proposals and mark work done in the board (`serve`).
   A todo task with unfinished dependencies shows as blocked.
+  Tasks a human put under YOLO need no approval and skip review.
 
 examples:
   kanvas.py status
@@ -1281,7 +1338,7 @@ def build_parser():
     p = add("start", cmd_start, "start a ready task (todo -> doing)")
     p.add_argument("id")
     p.add_argument("-m", "--message", help="optional note, e.g. your plan")
-    p = add("finish", cmd_finish, "hand a task over for review (doing -> review); needs a summary")
+    p = add("finish", cmd_finish, "hand a task over for review (doing -> review, or done under YOLO); needs a summary")
     p.add_argument("id")
     p.add_argument("-m", "--message", help="summary of what you did")
     text_sources(p, "summary")

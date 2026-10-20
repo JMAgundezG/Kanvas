@@ -127,6 +127,8 @@ class FormatTests(unittest.TestCase):
         board["tasks"][0]["desc"] = 'Quotes " and \\ backslash, tab\t, unicode é 日本 ✓, </script>'
         board["tasks"][1]["deps"] = []
         board["tasks"][1]["extra"] = {"nested": [1, 2.5, None, True]}
+        board["tasks"][2]["yolo"] = True
+        board["tasks"][3]["yolo"] = False
         board["unknown"] = ["kept"]
         text = json.dumps(board, ensure_ascii=False)
         js = html[start:end] + "\nprocess.stdout.write(serialize(normalize(JSON.parse(require('fs').readFileSync(0, 'utf8')))));\n"
@@ -258,6 +260,45 @@ class WorkflowTests(TempBoard):
         board["tasks"].append(task("DV-05", deps=["DV-77"]))
         write_board(self.path, board)
         self.assertNotEqual(self.run_cli("check", check=False)[0], 0)
+
+
+class YoloTests(TempBoard):
+    def initial_board(self):
+        board = super().initial_board()
+        board["tasks"][2]["yolo"] = True  # DV-03, which depends on DV-02
+        board["tasks"].append(task("DV-05", "todo", "DV", ["DV-01"]))
+        return board
+
+    def test_yolo_is_stored_after_deps(self):
+        t = json.loads(self.raw())["tasks"][2]
+        self.assertEqual(list(t), ["id", "title", "state", "group", "deps", "yolo"])
+
+    def test_covered_tasks_skip_review_and_others_do_not(self):
+        _, out, _ = self.run_cli("ready")
+        self.assertEqual(out.splitlines(), ["DV-02  Task DV-02  (YOLO)", "DV-05  Task DV-05"])
+        self.run_cli("start", "DV-02")
+        _, out, _ = self.run_cli("finish", "DV-02", "-m", "Parser done")
+        self.assertIn("doing -> done", out)
+        self.assertEqual(self.get("DV-02")["state"], "done")
+        self.run_cli("start", "DV-03")
+        _, out, _ = self.run_cli("finish", "DV-03", "-m", "Feature done")
+        self.assertIn("YOLO is set on it", out)
+        self.assertEqual(self.get("DV-03")["state"], "done")
+        self.run_cli("start", "DV-05")
+        self.run_cli("finish", "DV-05", "-m", "Outside the chain")
+        self.assertEqual(self.get("DV-05")["state"], "review")
+
+    def test_proposals_linked_into_the_chain_count_as_approved(self):
+        self.assertIn("a human must approve it", self.fails("start", "DV-04"))
+        self.run_cli("depend", "DV-02", "DV-04")
+        _, out, _ = self.run_cli("status")
+        self.assertIn("YOLO: DV-03", out)
+        self.assertNotIn("Proposed, awaiting human approval", out)
+        _, out, _ = self.run_cli("start", "DV-04")
+        self.assertIn("proposed -> doing, approved by YOLO", out)
+        self.assertIn("YOLO:   through DV-03", out)
+        self.run_cli("finish", "DV-04", "-m", "Done")
+        self.assertEqual(self.get("DV-04")["state"], "done")
 
 
 class ProposalTests(TempBoard):

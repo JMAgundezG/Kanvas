@@ -10,7 +10,7 @@ One JSON file, one Python script, one HTML page. No accounts, no build step, no 
 
 AI agents do their best work in a terminal, but a project needs a plan that outlives a single chat: what is left, what depends on what, what was decided and why. Kanvas keeps that plan in `kanvas.json` next to your code, where you and any number of agents work on it together.
 
-- **You stay in control.** Agents propose tasks and you approve them. Agents finish tasks and you review them. Only you mark work done.
+- **You stay in control.** Agents propose tasks and you approve them. Agents finish tasks and you review them. Only you mark work done, unless you hand a chain of tasks over with YOLO.
 - **Agents cannot break the board.** They change it through `kanvas.py`, which enforces the workflow and rejects invalid moves with a clear message.
 - **Live.** Agent changes appear in the browser within a second, and your edits are on disk immediately for the agent's next command.
 - **Agent-agnostic.** Claude Code, Codex, Cursor, Gemini CLI, or anything that runs shell commands. Use several at once; notes record who did what.
@@ -64,9 +64,12 @@ Agents may propose tasks and groups, start ready tasks, finish or pause tasks in
 
 ![Reviewing a finished task](img/review.png)
 
-- **Graph view.** One swimlane per group, columns by dependency depth. Hover or select a task to highlight everything it depends on and everything waiting for it. Drag the dot on a card's edge onto another card to add a dependency (cycles are refused).
+- **Graph view.** One swimlane per group, laid out by dependency depth, flowing left to right or top to bottom (press `L` to switch). The slider under the zoom buttons, or `[` and `]`, compresses or extends the space between dependency levels. Hover or select a task to highlight everything it depends on and everything waiting for it. Each card has a dot on its incoming and outgoing side: drag one onto another card to add a dependency in that direction (cycles are refused). Click an arrow to open or remove the dependency.
 - **Board view.** Kanban columns by state. Drag cards between columns, or approve every proposal at once.
 - **Task panel.** Title, Markdown description, state, group, dependencies and the notes timeline. Approve, start, send to review, mark done, or send back with feedback.
+- **Right-click menus.** On a card: state actions, a new task that depends on it, adding and removing dependencies, copying the ID, deleting. On an arrow (left or right click): the two tasks it connects are highlighted and shown in the menu; click either one to open it, or remove the connection. On empty space: a new task in that group, or a new group.
+- **Undo and redo.** Ctrl+Z undoes your last change in the browser, Ctrl+Shift+Z or Ctrl+Y redoes it, and the arrows next to the filter box do the same. Changes agents made in the meantime are kept: an undo only touches what your change touched, and refuses if an agent has changed that since. Inside a text field, Ctrl+Z undoes typing as usual.
+- **YOLO.** "YOLO up to here…" on a card (right-click menu or task panel) hands that task and everything it depends on to the agents: they may start the chain's proposals without approval, and finishing a task marks it done without review. Turning it on approves the chain's current proposals and marks the tasks waiting for review as done. The task carries a YOLO tag and the tasks it covers a lightning icon; the same menu turns it off.
 - **Everything else.** Filter by state, search, hide finished work, groups with their own ID prefixes, dark mode, keyboard shortcuts (press `?`), and links: `#BE-02` in the URL opens that task.
 
 ![The board view in dark mode](img/board-dark.png)
@@ -89,8 +92,8 @@ Agents use these commands; you can too. Run `python kanvas.py -h` for details.
 | `ready` / `blocked` | What can start now / what waits on what |
 | `show ID` | Details, dependencies and notes |
 | `list [STATE or GROUP]` | Tasks by group, optionally filtered |
-| `start ID [-m NOTE]` | To do to doing |
-| `finish ID -m SUMMARY` | Doing to review; the summary is required and kept as a note |
+| `start ID [-m NOTE]` | To do to doing; proposals under YOLO too |
+| `finish ID -m SUMMARY` | Doing to review, or to done under YOLO; the summary is required and kept as a note |
 | `pause ID [-m NOTE]` | Doing back to to do |
 | `note ID TEXT` | Append a note; descriptions stay as the human wrote them |
 | `propose GROUP TITLE [DESC] [--deps ID ...]` | Propose a task |
@@ -139,7 +142,7 @@ Writes take a short lock and replace the file atomically, so several agents and 
 }
 ```
 
-States are `proposed`, `todo`, `doing`, `review` and `done`; blocked is computed. The CLI and the browser write the same canonical formatting, so diffs show only real changes. Unknown fields are preserved. See [`examples/sample.json`](examples/sample.json) for a complete board.
+States are `proposed`, `todo`, `doing`, `review` and `done`; blocked is computed. `"yolo": true` on a task puts it and everything it depends on under YOLO. The CLI and the browser write the same canonical formatting, so diffs show only real changes. Unknown fields are preserved. See [`examples/sample.json`](examples/sample.json) for a complete board.
 
 ## Migrating from Kanvas 0.x (Obsidian)
 
