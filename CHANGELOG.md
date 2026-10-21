@@ -27,6 +27,7 @@ Kanvas runs without Obsidian. The board is a JSON file, agents use a new CLI, an
 - `init` installs an agent skill in `.agents/skills/kanvas/`, creates an `AGENTS.md` pointing to it when the project has none, and never modifies existing files (#8); run without a folder, it sets up the folder of an existing board, else the top folder of the git repository, and `kanvas init .` keeps the current folder
 - `serve` in a project without a board offers to create one, so a first-time user needs only `kanvas serve`; without a person at the terminal it fails with a message naming `kanvas init`
 - Messages name the command you typed: `kanvas ...` for the installed command, `python .agents/skills/kanvas/kanvas.py ...` for the project's copy
+- The browser page suggests `kanvas serve`, or the project's copy when the command is not installed, and the empty board asks you to have your agent interview you and plan the project
 - `status` and `serve` say when a project's agent copy is out of date and suggest `kanvas init`, or `uv tool upgrade kanvas-board` when the installed `kanvas` is the older one
 - Text options read UTF-8 from `--stdin` or `--file` on every platform, fixing multi-line and non-ASCII text on Windows (#20, #23)
 - Text arguments may follow options, as in `note DV-01 --as claude "..."`
