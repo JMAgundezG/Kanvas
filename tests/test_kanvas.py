@@ -1,6 +1,9 @@
 """Tests for kanvas.py. Run with: python -m unittest discover -s tests -v"""
 
+import argparse
+import contextlib
 import http.client
+import io
 import json
 import os
 import re
@@ -544,6 +547,122 @@ class InitTests(unittest.TestCase):
         """The package takes its version from kanvas.py; the VERSION file must agree."""
         with open(os.path.join(ROOT, "VERSION"), encoding="utf-8") as f:
             self.assertEqual(f.read().strip(), kanvas.VERSION)
+
+
+class InstalledCommandTests(TempBoard):
+    """Messages name the command the way it was typed, and the installed command checks the project's agent copy."""
+
+    def running(self, installed=False, on_path=False, argv0="kanvas.py"):
+        """Installed with or without `kanvas` on PATH (`uvx kanvas-board`), or run as a script from `argv0`."""
+        stack = contextlib.ExitStack()
+        stack.enter_context(mock.patch.object(kanvas, "INSTALLED", installed))
+        stack.enter_context(mock.patch("shutil.which", return_value="/usr/local/bin/kanvas" if on_path else None))
+        stack.enter_context(mock.patch.object(sys, "argv", [argv0]))
+        return stack
+
+    def write_copy(self, text):
+        skill = os.path.join(self.dir, ".agents", "skills", "kanvas")
+        os.makedirs(skill, exist_ok=True)
+        with open(os.path.join(skill, "kanvas.py"), "w", encoding="utf-8") as f:
+            f.write(f'"""Kanvas."""\n\n{text}\nFORMAT = 1\n')
+
+    def hint(self, copy_version, version="0.5.0", **mode):
+        self.write_copy(f'VERSION = "{copy_version}"')
+        with self.running(**mode), mock.patch.object(kanvas, "VERSION", version):
+            return kanvas.agent_copy_hint(self.path)
+
+    def status(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            kanvas.cmd_status(argparse.Namespace(board=self.path))
+        return out.getvalue()
+
+    def test_command_line_and_project_command(self):
+        with self.running(installed=True, on_path=True):
+            self.assertEqual(kanvas.command_line("init"), "kanvas init")
+            self.assertEqual(kanvas.command_line(), "kanvas")
+            self.assertEqual(kanvas.project_command("serve"), "kanvas serve")
+        with self.running(installed=True):
+            self.assertEqual(kanvas.command_line("init"), "uvx kanvas-board init")
+            self.assertEqual(kanvas.command_line(), "uvx kanvas-board")
+            self.assertEqual(kanvas.project_command("serve"), "python .agents/skills/kanvas/kanvas.py serve")
+        with self.running(on_path=True, argv0=".agents/skills/kanvas/kanvas.py"):
+            self.assertEqual(kanvas.command_line("status"), "python .agents/skills/kanvas/kanvas.py status")
+            self.assertEqual(kanvas.project_command(), "python .agents/skills/kanvas/kanvas.py")
+        with self.running(argv0="/home/me/My Tools/kanvas.py"):
+            self.assertEqual(kanvas.command_line("init"), 'python "/home/me/My Tools/kanvas.py" init')
+            self.assertEqual(kanvas.command_line(), 'python "/home/me/My Tools/kanvas.py"')
+
+    def test_help_names_the_program_as_typed(self):
+        with self.running(installed=True):
+            text = kanvas.build_parser().format_help()
+        self.assertTrue(text.startswith("usage: kanvas [-h]"), text[:40])
+        self.assertIn("\n  kanvas status\n", text)
+        with self.running(argv0=os.path.join("tools", "kanvas.py")):
+            text = kanvas.build_parser().format_help()
+        self.assertTrue(text.startswith("usage: kanvas.py [-h]"), text[:40])
+        self.assertIn("\n  kanvas.py start DV-02\n", text)
+        with self.running(argv0=""):
+            self.assertTrue(kanvas.build_parser().format_help().startswith("usage: kanvas.py [-h]"))
+
+    def test_missing_board_names_the_init_command(self):
+        nowhere = argparse.Namespace()
+        with mock.patch.object(kanvas, "find_board", return_value=None), mock.patch.dict(os.environ):
+            os.environ.pop("KANVAS_BOARD", None)
+            with self.running(installed=True, on_path=True):
+                with self.assertRaisesRegex(kanvas.KanvasError, "Create one with `kanvas init`, or pass --board PATH"):
+                    kanvas.board_path(nowhere)
+            with self.running(installed=True):
+                with self.assertRaisesRegex(kanvas.KanvasError, "`uvx kanvas-board init`"):
+                    kanvas.board_path(nowhere)
+            with self.running(argv0="kanvas.py"):
+                with self.assertRaisesRegex(kanvas.KanvasError, "`python kanvas.py init`"):
+                    kanvas.board_path(nowhere)
+
+    def test_other_messages_name_the_command(self):
+        args = argparse.Namespace(board=self.path, id="DV-02", message=None, stdin=False, file=None)
+        with self.running(installed=True, on_path=True):
+            with self.assertRaisesRegex(kanvas.KanvasError, 'e.g. `kanvas finish DV-02 -m "Added X; tests pass"`'):
+                kanvas.cmd_finish(args)
+            with self.assertRaisesRegex(kanvas.KanvasError, "upgrade with `uv tool upgrade kanvas-board`"):
+                kanvas.parse_board('{"kanvas": 99}')
+        with self.running(argv0="kanvas.py"):
+            with self.assertRaisesRegex(kanvas.KanvasError, "`python kanvas.py finish DV-02 -m"):
+                kanvas.cmd_finish(args)
+
+    def test_older_agent_copy(self):
+        self.assertEqual(self.hint("0.4.0", installed=True, on_path=True),
+                         "This project's agent copy is 0.4.0; run `kanvas init` to update it to 0.5.0.")
+        self.assertEqual(self.hint("0.9.0", "0.10.0", installed=True),
+                         "This project's agent copy is 0.9.0; run `uvx kanvas-board init` to update it to 0.10.0.")
+
+    def test_newer_agent_copy(self):
+        self.assertEqual(self.hint("0.5.0", "0.4.0", installed=True, on_path=True),
+                         "This project's agent copy is 0.5.0, newer than your kanvas 0.4.0; "
+                         "update it with `uv tool upgrade kanvas-board`.")
+
+    def test_no_hint_when_versions_match_or_cannot_be_read(self):
+        self.assertIsNone(self.hint("0.5.0", installed=True, on_path=True))
+        self.assertIsNone(self.hint("0.6.0rc1", installed=True, on_path=True))
+        self.assertIsNone(self.hint("0.4.0", "0.5.0.dev1", installed=True, on_path=True))
+        self.write_copy("# no version here")
+        with self.running(installed=True, on_path=True):
+            self.assertIsNone(kanvas.agent_copy_hint(self.path))
+        shutil.rmtree(os.path.join(self.dir, ".agents"))
+        with self.running(installed=True, on_path=True):
+            self.assertIsNone(kanvas.agent_copy_hint(self.path))
+
+    def test_no_hint_when_run_as_a_script(self):
+        self.assertIsNone(self.hint("0.4.0", on_path=True))
+
+    def test_status_ends_with_the_hint(self):
+        self.write_copy('VERSION = "0.0.1"')
+        with self.running(installed=True, on_path=True):
+            out = self.status()
+        self.assertTrue(out.endswith(f"\n\nThis project's agent copy is 0.0.1; run `kanvas init` to update it to "
+                                     f"{kanvas.VERSION}.\n"), out)
+        with self.running():
+            self.assertNotIn("agent copy", self.status())
 
 
 LEGACY_CANVAS = {

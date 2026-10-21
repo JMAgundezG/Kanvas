@@ -30,6 +30,7 @@ from urllib.parse import urlparse
 
 VERSION = "0.4.0"
 FORMAT = 1
+INSTALLED = __name__ == "kanvas_board"
 BOARD_FILE = "kanvas.json"
 HERE = os.path.dirname(os.path.abspath(__file__))
 HTML_FILE = os.path.join(HERE, "kanvas.html")
@@ -89,7 +90,8 @@ def parse_board(text):
     if not isinstance(board, dict):
         raise KanvasError("Board must be a JSON object")
     if isinstance(board.get("kanvas"), int) and board["kanvas"] > FORMAT:
-        raise KanvasError("Board was written by a newer version of Kanvas; upgrade kanvas.py")
+        upgrade = "upgrade with `uv tool upgrade kanvas-board`" if INSTALLED else "upgrade kanvas.py"
+        raise KanvasError(f"Board was written by a newer version of Kanvas; {upgrade}")
     # Defaults follow JavaScript's truthiness and String(), as normalize() in kanvas.html does.
     board["title"] = _js_text(board.get("title"))
     for key in ("groups", "tasks"):
@@ -634,7 +636,7 @@ def board_path(args, must_exist=True):
     if not path:
         raise KanvasError(
             f"No {BOARD_FILE} found here or in any parent directory. "
-            "Create one with `python kanvas.py init`, or pass --board PATH."
+            f"Create one with `{command_line('init')}`, or pass --board PATH."
         )
     path = os.path.abspath(path)
     if must_exist and not os.path.isfile(path):
@@ -742,6 +744,47 @@ STATE_HINTS = {
 }
 
 
+def command_line(rest=""):
+    """The command to type to run Kanvas the way it was started, followed by `rest`."""
+    if INSTALLED:
+        head = "kanvas" if shutil.which("kanvas") else "uvx kanvas-board"
+    else:
+        script = sys.argv[0] or "kanvas.py"
+        head = f'python "{script}"' if " " in script else f"python {script}"
+    return f"{head} {rest}" if rest else head
+
+
+def project_command(rest=""):
+    """What to type inside a project after `init`: the installed command, or the project's own copy."""
+    head = "kanvas" if INSTALLED and shutil.which("kanvas") else "python .agents/skills/kanvas/kanvas.py"
+    return f"{head} {rest}" if rest else head
+
+
+def _version_key(version):
+    try:
+        return tuple(int(part) for part in version.split("."))
+    except ValueError:
+        return None
+
+
+def agent_copy_hint(board_path):
+    """A line saying the project's agent copy differs from the installed command, or None."""
+    if not INSTALLED:
+        return None
+    copy = os.path.join(os.path.dirname(board_path), ".agents", "skills", "kanvas", "kanvas.py")
+    try:
+        m = re.search(r'^VERSION = "([^"]+)"', read_text_file(copy), re.M)
+    except (OSError, ValueError):
+        return None
+    theirs, ours = _version_key(m.group(1)) if m else None, _version_key(VERSION)
+    if theirs is None or ours is None or theirs == ours:
+        return None
+    if theirs < ours:
+        return f"This project's agent copy is {m.group(1)}; run `{command_line('init')}` to update it to {VERSION}."
+    return (f"This project's agent copy is {m.group(1)}, newer than your kanvas {VERSION}; "
+            "update it with `uv tool upgrade kanvas-board`.")
+
+
 # ---------------------------------------------------------------------------
 # Read-only commands
 # ---------------------------------------------------------------------------
@@ -801,6 +844,8 @@ def cmd_status(args):
             print(f"  error: {e}")
         for w in warnings:
             print(f"  warning: {w}")
+    if hint := agent_copy_hint(path):
+        print(f"\n{hint}")
 
 
 def cmd_list(args):
@@ -919,7 +964,7 @@ def cmd_finish(args):
     if not summary:
         raise KanvasError(
             "finish needs a summary of what you did, e.g. "
-            f'finish {args.id} -m "Added X; tests pass" (or pipe it with --stdin)'
+            f'`{command_line("finish " + args.id)} -m "Added X; tests pass"` (or pipe it with --stdin)'
         )
 
     def op(board):
@@ -1396,6 +1441,8 @@ def cmd_serve(args):
     host, port = server.server_address[:2]
     url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}/"
     print(f"Kanvas board: {path}")
+    if hint := agent_copy_hint(path):
+        print(hint)
     print(f"Open {url}  (Ctrl+C to stop)")
     if not server.check_host:
         print("Warning: listening beyond localhost; anyone who can reach this port can edit the board.")
@@ -1424,10 +1471,10 @@ workflow:  proposed -> todo -> doing -> review -> done
   review. YOLO ends once its task is in review.
 
 examples:
-  kanvas.py status
-  kanvas.py start DV-02
-  kanvas.py finish DV-02 -m "Implemented the parser; 14 tests pass"
-  kanvas.py propose Development "Add retries" "Retry failed uploads" --deps DV-02
+  %(prog)s status
+  %(prog)s start DV-02
+  %(prog)s finish DV-02 -m "Implemented the parser; 14 tests pass"
+  %(prog)s propose Development "Add retries" "Retry failed uploads" --deps DV-02
 """
 
 
@@ -1438,8 +1485,9 @@ def build_parser():
     common.add_argument("--as", dest="as_name", default=argparse.SUPPRESS, metavar="NAME",
                         help="name recorded on notes (default: $KANVAS_AGENT or 'agent')")
 
+    prog = "kanvas" if INSTALLED else os.path.basename(sys.argv[0]) or "kanvas.py"
     parser = argparse.ArgumentParser(
-        prog="kanvas.py", parents=[common], epilog=EPILOG,
+        prog=prog, parents=[common], epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description="Kanvas: a task board shared by humans and AI agents.",
     )

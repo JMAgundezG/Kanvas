@@ -4,13 +4,15 @@
     python tests/check_installed.py [COMMAND]
 
 COMMAND defaults to `kanvas` on PATH. In a fresh temporary project the script
-checks the version, `init`, commands run from a subfolder, `export`, `serve`,
-and the copy of kanvas.py that `init` installs for agents. It stops with exit
+checks the version, the help, the error outside a board, `init`, commands run
+from a subfolder, `export`, `serve`, the copy of kanvas.py that `init` installs
+for agents, and the hint when that copy is out of date. It stops with exit
 code 1 at the first failure.
 """
 
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -42,6 +44,13 @@ def run(cmd, cwd):
     if proc.returncode != 0:
         raise CheckFailed(f"{' '.join(cmd)} exited with {proc.returncode}\n{proc.stdout}{proc.stderr}")
     return proc.stdout
+
+
+def fails(cmd, cwd):
+    proc = subprocess.run(cmd, cwd=cwd, env=ENV, capture_output=True, encoding="utf-8", errors="replace")
+    if proc.returncode == 0:
+        raise CheckFailed(f"{' '.join(cmd)} should have failed\n{proc.stdout}{proc.stderr}")
+    return proc.stderr
 
 
 def expect(text, needle, what):
@@ -100,6 +109,13 @@ def check(kanvas, project):
         expect(run([alias, "--version"], project), VERSION, "kanvas-board --version")
         ok("kanvas-board --version")
 
+    out = run(kanvas + ["--help"], project)
+    if not out.startswith("usage: kanvas "):
+        raise CheckFailed(f"--help should start with 'usage: kanvas ':\n{out}")
+    ok("--help names the kanvas command")
+    expect(fails(kanvas + ["status"], project), "`kanvas init`", "status outside a board")
+    ok("status outside a board says to run kanvas init")
+
     expect(run(kanvas + ["init"], project), "created   kanvas.json", "init")
     for rel in ("kanvas.json", ".agents/skills/kanvas/kanvas.py", ".agents/skills/kanvas/kanvas.html",
                 ".agents/skills/kanvas/SKILL.md"):
@@ -125,6 +141,16 @@ def check(kanvas, project):
     copy = os.path.join(project, ".agents", "skills", "kanvas", "kanvas.py")
     expect(run([sys.executable, copy, "status"], project), TITLE, "the project copy of kanvas.py")
     ok("the project copy runs for agents")
+
+    with open(copy, encoding="utf-8") as f:
+        text, count = re.subn(r'^VERSION = "[^"]+"', 'VERSION = "0.0.1"', f.read(), count=1, flags=re.M)
+    if not count:
+        raise CheckFailed(f"{copy} has no VERSION line")
+    with open(copy, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    hint = f"This project's agent copy is 0.0.1; run `kanvas init` to update it to {VERSION}."
+    expect(run(kanvas + ["status"], project), hint, "status with an old agent copy")
+    ok("status says when the agent copy is out of date")
 
 
 def main():
