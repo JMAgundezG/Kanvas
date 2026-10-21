@@ -1,4 +1,4 @@
-<img src="img/icon.svg" alt="" width="72">
+<img src="https://raw.githubusercontent.com/XMihura/Kanvas/main/img/icon.svg" alt="" width="72">
 
 # Kanvas
 
@@ -6,7 +6,7 @@ A task board you share with your AI coding agents. Agents plan and report throug
 
 One JSON file, one Python script, one HTML page. No accounts, no build step, no dependencies.
 
-![The dependency graph of a sample project](img/graph.png)
+![The dependency graph of a sample project](https://raw.githubusercontent.com/XMihura/Kanvas/main/img/graph.png)
 
 ## Why
 
@@ -20,26 +20,84 @@ AI agents do their best work in a terminal, but a project needs a plan that outl
 
 ## Quick start
 
-Requirements: Python 3.8+ and a browser. Works on Linux, macOS and Windows.
+Kanvas works on Linux, macOS and Windows. You need a browser and [uv](https://docs.astral.sh/uv/), which installs Kanvas and downloads Python too if your computer has none.
+
+**1. Install uv** (once). On macOS and Linux, run this in a terminal:
 
 ```bash
-git clone https://github.com/XMihura/Kanvas.git ~/Kanvas
-cd ~/code/my-project
-python ~/Kanvas/kanvas.py init
-python .agents/skills/kanvas/kanvas.py serve
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-`init` creates `kanvas.json` and installs the agent skill in `.agents/skills/kanvas/`, with copies of `SKILL.md` in `.claude/skills/` (and in `.cursor/` or `.gemini/` when those folders exist). It never modifies an existing file. Agents that support skills pick it up automatically; for any other agent, add this line to `AGENTS.md` or `CLAUDE.md`:
+On Windows, run this in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Then close the terminal and open a new one.
+
+**2. Install Kanvas** (once):
+
+```bash
+uv tool install kanvas-board
+```
+
+This gives you the `kanvas` command. If the terminal later cannot find it, run `uv tool update-shell` and open a new terminal.
+
+**3. Open the board.** Go to your project's folder and run:
+
+```bash
+cd path/to/your-project
+kanvas init
+kanvas serve
+```
+
+`init` creates the board, `kanvas.json`, and installs the agent skill in `.agents/skills/kanvas/`: instructions for your agents and their own copy of Kanvas, so agents need nothing installed. Commit `kanvas.json` and `.agents/` with your project.
+
+Agents that support skills pick the skill up automatically, and `init` creates an `AGENTS.md` that points the others to it. If your project already has an `AGENTS.md` or `CLAUDE.md`, `init` leaves it untouched and prints this line for you to add:
 
 ```
 Plan and track work on the Kanvas board; follow .agents/skills/kanvas/SKILL.md.
 ```
 
-Then ask your agent:
+`serve` opens the board in your browser. Keep it running while you work; Ctrl+C stops it.
+
+**4. Ask your agent:**
 
 > Interview me about this project and plan it on the Kanvas board.
 
 The plan arrives as proposals. Approve the ones you want, and tell the agent to start working.
+
+### Other ways to install and update
+
+Try Kanvas without installing it:
+
+```bash
+uvx kanvas-board init
+uvx kanvas-board serve
+```
+
+Install with pipx, or straight from GitHub without PyPI:
+
+```bash
+pipx install kanvas-board
+uv tool install https://github.com/XMihura/Kanvas/archive/refs/heads/main.zip
+```
+
+Without uv, you need Python 3.8 or newer. [Download](https://github.com/XMihura/Kanvas/archive/refs/heads/main.zip) or clone this repository and run its `kanvas.py` in your project's folder; from then on, use the project's copy (type `python3` where `python` is missing):
+
+```bash
+python path/to/kanvas.py init
+python .agents/skills/kanvas/kanvas.py serve
+```
+
+To update, run this, then `kanvas init` again in each project to refresh the copy its agents use:
+
+```bash
+uv tool upgrade kanvas-board
+```
+
+`kanvas status` and `kanvas serve` remind you when a project's copy differs from the installed `kanvas`: they suggest `kanvas init` when the copy is older, and `uv tool upgrade kanvas-board` when it is newer.
 
 ## How it works
 
@@ -47,7 +105,7 @@ The plan arrives as proposals. Approve the ones you want, and tell the agent to 
 flowchart LR
     agent["AI agents"] -- "kanvas.py start / finish / propose / note" --> board[("kanvas.json")]
     you["You"] -- "browser" --> page["kanvas.html"]
-    page <-- "kanvas.py serve" --> board
+    page <-- "kanvas serve" --> board
 ```
 
 Every task moves through five states. A to-do task whose dependencies are unfinished shows as blocked, and becomes ready by itself once they are done.
@@ -64,7 +122,7 @@ Agents may propose tasks and groups, start ready tasks, finish or pause tasks in
 
 ## The board
 
-![Reviewing a finished task](img/review.png)
+![Reviewing a finished task](https://raw.githubusercontent.com/XMihura/Kanvas/main/img/review.png)
 
 - **Graph view.** One swimlane per group, laid out by dependency depth, flowing left to right or top to bottom (switch under Display, or press `L`). The automatic layout orders the cards for fewer crossings and straighter arrows, and arrows that skip levels run between cards. Set the card order to Manual under Display (or press `M`) to order the cards yourself: drag a card up or down within its level, or into another swimlane to change its group, and drag a swimlane by its name to reorder the groups. Your order is saved in `kanvas.json`, and right-clicking empty space offers to start from the automatic order. The spacing slider under Display, or `[` and `]`, compresses or extends the space between dependency levels. Hover or select a task to highlight everything it depends on and everything waiting for it. A dependency that another dependency already implies (C needs A and B, and B needs A) stays in the file but is drawn only while A or C is selected, as a dashed arrow. Each card has a dot on its incoming and outgoing side: drag one onto another card to add a dependency in that direction (cycles are refused). Click an arrow to open or remove the dependency.
 - **Board view.** Kanban columns by state. Drag cards between columns, or approve every proposal at once.
@@ -75,19 +133,19 @@ Agents may propose tasks and groups, start ready tasks, finish or pause tasks in
 - **YOLO.** "YOLO up to here…" on a card (right-click menu or task panel) hands that task and everything it depends on to the agents: they may start the chain's proposals without approval, and the tasks they finish on the way are done without review. The YOLO task itself comes back to you for review, so a YOLO run ends with one review of the result, and YOLO stops applying once that task is in review. YOLO on a task further along takes over the chain: the YOLO marks inside it go, so only the last task comes back for review. Turning it on approves the chain's current proposals and marks the other tasks waiting for review as done. The task carries a YOLO tag and the tasks it covers a lightning icon; the same menu turns it off.
 - **Everything else.** Filter by state, search (press `/`), hide finished work, groups with their own ID prefixes (from the menu on the board name), light, dark or system theme, keyboard shortcuts (press `?`), arrow keys to move from card to card and Enter to move into its panel (Tab goes round the panel, Escape comes back out), and links: `#BE-02` in the URL opens that task.
 
-![The board view in dark mode](img/board-dark.png)
+![The board view in dark mode](https://raw.githubusercontent.com/XMihura/Kanvas/main/img/board-dark.png)
 
 There are three ways to open it:
 
 | | |
 |---|---|
-| `kanvas.py serve` | Any browser, live two-way sync. Concurrent changes from agents and the browser merge automatically. |
-| Open `kanvas.html` directly | In Chrome or Edge, choose your `kanvas.json` and the page reads and writes it in place, with live updates. Other browsers edit a copy in the tab; **Save** downloads it. |
-| `kanvas.py export` | A single self-contained, read-only HTML snapshot to share or attach to a pull request. |
+| `kanvas serve` | Any browser, live two-way sync. Concurrent changes from agents and the browser merge automatically. |
+| Open `kanvas.html` directly | The project has a copy in `.agents/skills/kanvas/`. In Chrome or Edge, choose your `kanvas.json` and the page reads and writes it in place, with live updates. Other browsers edit a copy in the tab; **Save** downloads it. |
+| `kanvas export` | A single self-contained, read-only HTML snapshot to share or attach to a pull request. |
 
 ## CLI
 
-Agents use these commands; you can too. Run `python kanvas.py -h` for details.
+You type `kanvas <command>`; `kanvas -h` lists the commands and `kanvas <command> -h` explains one. Agents run the same commands through the project's copy, `python .agents/skills/kanvas/kanvas.py <command>`, so cloud agents and teammates who never installed Kanvas can work on the board too. Messages name the command you typed: `kanvas ...` for the installed command, `python .agents/skills/kanvas/kanvas.py ...` for the project's copy.
 
 | Command | Purpose |
 |---------|---------|
@@ -104,10 +162,14 @@ Agents use these commands; you can too. Run `python kanvas.py -h` for details.
 | `batch` | Propose many groups and tasks from JSON on stdin |
 | `depend ID ON [ON ...]` | Add dependencies |
 | `check` | Validate the board; exit code 1 on errors |
-| `serve [--port N] [--host H]` | Open the board in the browser |
-| `init [DIR]` | Set up Kanvas in a project |
+| `serve [--port N] [--host H]` | Open the board in the browser; in a project without a board, offer to create one first |
+| `init [DIR]` | Set up Kanvas in a project, or refresh the agents' copy after an update |
 | `import FILE.canvas` | Migrate a Kanvas 0.x Obsidian board |
 | `export [FILE.html]` | Write a read-only snapshot |
+
+`init` creates `kanvas.json` and installs the agent skill in `.agents/skills/kanvas/` (a copy of `kanvas.py`, `kanvas.html` and `SKILL.md`), with copies of `SKILL.md` in `.claude/skills/` (and in `.cursor/` or `.gemini/` when those folders exist). When the project has no `AGENTS.md`, it creates one that points agents to the skill. Run without a folder, it picks the folder that already holds a board (the current folder or one above it), else the top folder of the git repository, else the current folder; `kanvas init .` keeps the current folder, for one board per subproject. Apart from the skill files it installs, it never modifies an existing file.
+
+In a project without a board, `serve` asks whether to create one, then opens it. Without a person at the terminal, it fails with a message naming `kanvas init`.
 
 Text arguments also accept `--stdin` and `--file PATH`, read as UTF-8 on every platform, which is the reliable way to pass multi-line or non-ASCII text from any shell. Notes are signed with `--as NAME` or the `KANVAS_AGENT` environment variable. The CLI finds `kanvas.json` in the current directory or any parent; `--board PATH` or `KANVAS_BOARD` point elsewhere.
 
@@ -145,13 +207,13 @@ Writes take a short lock and replace the file atomically, so several agents and 
 }
 ```
 
-States are `proposed`, `todo`, `doing`, `review` and `done`; blocked is computed. `"yolo": true` on a task puts it and everything it depends on under YOLO. A note edited in the browser gets an `"edited"` time next to its original `"at"`. The CLI and the browser write the same canonical formatting, so diffs show only real changes. Unknown fields are preserved. See [`examples/sample.json`](examples/sample.json) for a complete board.
+States are `proposed`, `todo`, `doing`, `review` and `done`; blocked is computed. `"yolo": true` on a task puts it and everything it depends on under YOLO. A note edited in the browser gets an `"edited"` time next to its original `"at"`. The CLI and the browser write the same canonical formatting, so diffs show only real changes. Unknown fields are preserved. See [`examples/sample.json`](https://github.com/XMihura/Kanvas/blob/main/examples/sample.json) for a complete board.
 
 ## Migrating from Kanvas 0.x (Obsidian)
 
 ```bash
-python ~/Kanvas/kanvas.py init
-python .agents/skills/kanvas/kanvas.py import Project.canvas
+kanvas init
+kanvas import Project.canvas
 ```
 
 Card colors become states, groups come from the canvas groups, arrows become dependencies, and existing task IDs are kept. The `.canvas` file is left untouched. Once you are happy with the result, delete `Project.canvas`, `canvas-tool.py`, `RULES.md`, the Kanvas instructions in `CLAUDE.md` / `AGENTS.md`, and the `.obsidian/plugins/canvas-watcher` plugin.
@@ -162,7 +224,7 @@ Card colors become states, groups come from the canvas groups, arrows become dep
 python -m unittest discover -s tests -v
 ```
 
-The suite is standard library only; one test also runs the browser's serializer under Node.js when it is installed, to check that both sides write identical files. Contributor notes are in [AGENTS.md](AGENTS.md).
+The suite is standard library only; one test also runs the browser's serializer under Node.js when it is installed, to check that both sides write identical files. Contributor notes are in [AGENTS.md](https://github.com/XMihura/Kanvas/blob/main/AGENTS.md).
 
 ## License
 

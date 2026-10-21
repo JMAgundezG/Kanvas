@@ -23,7 +23,11 @@ Kanvas runs without Obsidian. The board is a JSON file, agents use a new CLI, an
 - YOLO: mark a task in the board and agents may start and finish everything it depends on without approval or review, then the task itself, which comes back to you for review and ends the YOLO; YOLO on a task further along takes over the chain, so each chain ends with one review; its confirmation can be skipped with "Don't ask again" and brought back from the keyboard shortcuts dialog
 - Agents add notes with `note`; notes record the author (`--as`, `KANVAS_AGENT`)
 - Group prefixes may contain digits, such as `L0C-01` (#12), and IDs continue past 99
-- `init` installs an agent skill in `.agents/skills/kanvas/` and never modifies existing files (#8)
+- Install Kanvas as the `kanvas` command on Linux, macOS and Windows with `uv tool install kanvas-board` or `pipx install kanvas-board`, or try it with `uvx kanvas-board`; uv downloads Python when it is missing, and agents keep using the project's copy, so they need nothing installed
+- `init` installs an agent skill in `.agents/skills/kanvas/`, creates an `AGENTS.md` pointing to it when the project has none, and never modifies existing files (#8); run without a folder, it sets up the folder of an existing board, else the top folder of the git repository, and `kanvas init .` keeps the current folder
+- `serve` in a project without a board offers to create one, so a first-time user needs only `kanvas serve`; without a person at the terminal it fails with a message naming `kanvas init`
+- Messages name the command you typed: `kanvas ...` for the installed command, `python .agents/skills/kanvas/kanvas.py ...` for the project's copy
+- `status` and `serve` say when a project's agent copy is out of date and suggest `kanvas init`, or `uv tool upgrade kanvas-board` when the installed `kanvas` is the older one
 - Text options read UTF-8 from `--stdin` or `--file` on every platform, fixing multi-line and non-ASCII text on Windows (#20, #23)
 - Text arguments may follow options, as in `note DV-01 --as claude "..."`
 - Add `check`, `depend`, `add-group`, `import` (migrates Obsidian `.canvas` boards) and `export`
