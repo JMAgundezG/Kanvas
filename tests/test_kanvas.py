@@ -540,6 +540,11 @@ class InitTests(unittest.TestCase):
             text = f.read()
         self.assertTrue(text.startswith("---\nname: kanvas\ndescription: "), text[:80])
 
+    def test_version_file_matches_the_script(self):
+        """The package takes its version from kanvas.py; the VERSION file must agree."""
+        with open(os.path.join(ROOT, "VERSION"), encoding="utf-8") as f:
+            self.assertEqual(f.read().strip(), kanvas.VERSION)
+
 
 LEGACY_CANVAS = {
     "nodes": [

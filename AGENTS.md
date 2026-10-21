@@ -12,6 +12,8 @@ Kanvas is a task board shared by humans and AI agents. This file is for agents a
 | `examples/sample.json` | Demo board, also used by the tests |
 | `tests/test_kanvas.py` | Test suite (`unittest`) |
 | `tests/layout_stats.py`, `tests/fixtures/` | Graph clutter measurements and the boards they run on |
+| `pyproject.toml` | The `kanvas-board` package, which installs the `kanvas` command. Its version comes from `VERSION` in `kanvas.py`, and the `VERSION` file must match. hatchling is needed only to build it |
+| `tests/check_installed.py` | Runs an installed `kanvas` command through `init`, subfolders, `export`, `serve` and the project copy |
 
 ## Rules
 
@@ -25,6 +27,13 @@ Kanvas is a task board shared by humans and AI agents. This file is for agents a
 
 ```bash
 python -m unittest discover -s tests -v
+```
+
+When changing `pyproject.toml`, or how `kanvas.py` finds `kanvas.html` and `SKILL.md`, build and install the package and check the installed command, as CI does on Linux, macOS and Windows:
+
+```bash
+uv build && uv tool install --force dist/*.whl
+python tests/check_installed.py
 ```
 
 The graph layout lives in the "Graph layout" section of `kanvas.html`, which must stay free of DOM and app state so it runs under Node. When changing it, compare the clutter before and after:
