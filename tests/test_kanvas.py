@@ -672,6 +672,13 @@ class ServerTests(TempBoard):
             headers["If-Match"] = etag
         return self.request("PUT", "/api/board", json.dumps(board).encode("utf-8"), headers)
 
+    def test_starting_skips_the_host_name_lookup(self):
+        """socket.getfqdn, which HTTPServer calls on start, can take half a minute on macOS."""
+        with mock.patch("socket.getfqdn", side_effect=AssertionError("getfqdn was called")):
+            server = kanvas.start_server(self.path, "127.0.0.1", 0, quiet=True)
+        server.server_close()
+        self.assertEqual(server.server_name, "127.0.0.1")
+
     def test_serves_the_page_and_the_board(self):
         status, headers, body = self.request("GET", "/")
         self.assertEqual(status, 200)

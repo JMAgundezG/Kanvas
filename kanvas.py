@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+import socketserver
 import sys
 import threading
 import time
@@ -1275,6 +1276,12 @@ class BoardServer(ThreadingHTTPServer):
         self.board_path = path
         self.check_host = check_host
         self.quiet = quiet
+
+    def server_bind(self):
+        # HTTPServer.server_bind looks up the host's full name with socket.getfqdn,
+        # which can take half a minute on macOS. Nothing here uses that name.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 class BoardHandler(BaseHTTPRequestHandler):
