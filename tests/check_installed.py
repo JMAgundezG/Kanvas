@@ -116,12 +116,14 @@ def check(kanvas, project):
     expect(fails(kanvas + ["status"], project), "`kanvas init`", "status outside a board")
     ok("status outside a board says to run kanvas init")
 
-    expect(run(kanvas + ["init"], project), "created   kanvas.json", "init")
+    out = run(kanvas + ["init"], project)
+    expect(out, "created   kanvas.json", "init")
     for rel in ("kanvas.json", ".agents/skills/kanvas/kanvas.py", ".agents/skills/kanvas/kanvas.html",
-                ".agents/skills/kanvas/SKILL.md"):
+                ".agents/skills/kanvas/SKILL.md", "AGENTS.md"):
         if not os.path.isfile(os.path.join(project, rel)):
             raise CheckFailed(f"init did not create {rel}")
-    ok("init installs the board and the agent skill")
+    expect(out, "\n  kanvas serve\n", "the next step init prints")
+    ok("init installs the board, the agent skill and AGENTS.md, and suggests kanvas serve")
 
     sub = os.path.join(project, "src", "deep")
     os.makedirs(sub)

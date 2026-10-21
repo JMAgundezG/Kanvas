@@ -1186,7 +1186,7 @@ def cmd_init(args):
         init_project(os.path.abspath(args.dir))
 
 
-def init_project(target, reason=None):
+def init_project(target, reason=None, next_steps=True):
     """Set up Kanvas in `target`, print what was done, and return the board's path."""
     if not os.path.isdir(target):
         raise KanvasError(f"Directory does not exist: {target}")
@@ -1233,8 +1233,9 @@ def init_project(target, reason=None):
         migrate = project_command(f'import "{legacy[0]}"')
         print(f"\nFound {', '.join(legacy)}. Migrate a Kanvas 0.x Obsidian board with:")
         print(f"  {migrate}")
-    print("\nOpen the board:")
-    print(f"  {project_command('serve')}")
+    if next_steps:
+        print("\nOpen the board:")
+        print(f"  {project_command('serve')}")
     if not points_to_skill(target):
         print("\nAgents without skill support: add this line to AGENTS.md or CLAUDE.md:")
         print(f"  {AGENTS_LINE}")
@@ -1506,7 +1507,7 @@ def offer_board():
     if answer.strip().lower() not in ("", "y", "yes"):
         return None
     print()
-    path = init_project(target, reason)
+    path = init_project(target, reason, next_steps=False)
     print()
     return path
 

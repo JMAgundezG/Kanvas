@@ -54,7 +54,7 @@ kanvas serve
 
 `init` creates the board, `kanvas.json`, and installs the agent skill in `.agents/skills/kanvas/`: instructions for your agents and their own copy of Kanvas, so agents need nothing installed. Commit `kanvas.json` and `.agents/` with your project.
 
-Agents that support skills pick the skill up automatically, and `init` creates an `AGENTS.md` that points the others to it. If your project already has an `AGENTS.md` or `CLAUDE.md`, `init` leaves it untouched and prints this line for you to add:
+Agents that support skills pick the skill up automatically, and `init` creates an `AGENTS.md` that points the others to it. If your project already has an `AGENTS.md`, `init` leaves it untouched and, when the file does not mention the skill yet, prints this line for you to add:
 
 ```
 Plan and track work on the Kanvas board; follow .agents/skills/kanvas/SKILL.md.

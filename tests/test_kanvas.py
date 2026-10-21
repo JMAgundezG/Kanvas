@@ -21,6 +21,9 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 import kanvas  # noqa: E402
 
+# The CLI processes the tests start inherit the environment; they must never reach a real board.
+os.environ.pop("KANVAS_BOARD", None)
+
 SCRIPT = os.path.join(ROOT, "kanvas.py")
 
 
@@ -995,6 +998,7 @@ class ServeWithoutBoardTests(unittest.TestCase):
                 self.assertTrue(os.path.isfile(os.path.join(top, ".agents", "skills", "kanvas", "SKILL.md")))
                 self.assertIn(f"Kanvas {kanvas.VERSION} in {top}, the top folder of this git repository", out)
                 self.assertIn("created   kanvas.json", out)
+                self.assertNotIn("Open the board:", out)
                 self.assertIn(f"Kanvas board: {board}", out)
                 self.assertEqual(self.start.call_args[0][0], board)
                 self.server.serve_forever.assert_called_once_with()
