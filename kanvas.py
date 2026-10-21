@@ -41,7 +41,8 @@ UNGROUPED_PREFIX = "G"
 TASK_KEYS = ("id", "title", "state", "group", "deps", "yolo", "desc", "notes")
 REQUIRED_TASK_KEYS = ("id", "title", "state")
 GROUP_KEYS = ("id", "name")
-NOTE_KEYS = ("at", "by", "text")
+NOTE_KEYS = ("at", "by", "edited", "text")
+REQUIRED_NOTE_KEYS = ("at", "by", "text")
 
 LOCK_TIMEOUT = 5.0
 STALE_LOCK_AGE = 10.0
@@ -88,7 +89,8 @@ def parse_board(text):
         raise KanvasError("Board must be a JSON object")
     if isinstance(board.get("kanvas"), int) and board["kanvas"] > FORMAT:
         raise KanvasError("Board was written by a newer version of Kanvas; upgrade kanvas.py")
-    board.setdefault("title", "")
+    # Defaults follow JavaScript's truthiness and String(), as normalize() in kanvas.html does.
+    board["title"] = _js_text(board.get("title"))
     for key in ("groups", "tasks"):
         board.setdefault(key, [])
         if not isinstance(board[key], list) or not all(isinstance(x, dict) for x in board[key]):
@@ -96,23 +98,82 @@ def parse_board(text):
     for g in board["groups"]:
         if not isinstance(g.get("id"), str):
             raise KanvasError("Every group needs a string 'id'")
-        g.setdefault("name", g["id"])
+        g["name"] = _js_str(g["name"]) if _js_truthy(g.get("name")) else g["id"]
     for t in board["tasks"]:
         if not isinstance(t.get("id"), str):
             raise KanvasError("Every task needs a string 'id'")
-        t["title"] = str(t.get("title") or "")
-        t.setdefault("state", "todo")
-        t.setdefault("group", None)
-        t["desc"] = str(t.get("desc") or "")
+        t["title"] = _js_text(t.get("title"))
+        t["state"] = t["state"] if _js_truthy(t.get("state")) else "todo"
+        t["group"] = t["group"] if _js_truthy(t.get("group")) else None
+        t["desc"] = _js_text(t.get("desc"))
         deps = t.get("deps")
-        t["deps"] = [str(d) for d in deps] if isinstance(deps, list) else []
-        if t.get("yolo"):
+        t["deps"] = [_js_str(d) for d in deps] if isinstance(deps, list) else []
+        if _js_truthy(t.get("yolo")):
             t["yolo"] = True
         else:
             t.pop("yolo", None)
         notes = t.get("notes")
         t["notes"] = [n for n in notes if isinstance(n, dict)] if isinstance(notes, list) else []
     return board
+
+
+def _js_truthy(v):
+    if v is None or v is False or v == "":
+        return False
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return v == v and v != 0
+    return True
+
+
+def _js_str(v):
+    """String(v) in JavaScript, for the values JSON can hold."""
+    if isinstance(v, str):
+        return v
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        text = _js_number(v)
+        if text is None:
+            return "NaN" if v != v else "Infinity" if v > 0 else "-Infinity"
+        return text
+    if isinstance(v, list):
+        return ",".join("" if x is None else _js_str(x) for x in v)
+    return "[object Object]"
+
+
+def _js_text(v):
+    """String(v || "") in JavaScript."""
+    return _js_str(v) if _js_truthy(v) else ""
+
+
+def _js_number(x):
+    """A number as JavaScript prints it (shortest round trip), or None if it is not finite."""
+    if isinstance(x, int) and abs(x) <= 2 ** 53:
+        return str(x)
+    try:
+        x = float(x)
+    except OverflowError:
+        return None
+    if x != x or x in (float("inf"), float("-inf")):
+        return None
+    if x == 0:
+        return "0"
+    sign = "-" if x < 0 else ""
+    mantissa, _, exp = repr(abs(x)).partition("e")
+    whole, _, frac = mantissa.partition(".")
+    digits = (whole + frac).lstrip("0")
+    point = len(whole) + int(exp or 0) - (len(whole + frac) - len(digits))
+    digits = digits.rstrip("0")
+    if len(digits) <= point <= 21:
+        return sign + digits + "0" * (point - len(digits))
+    if 0 < point <= 21:
+        return sign + digits[:point] + "." + digits[point:]
+    if -6 < point <= 0:
+        return sign + "0." + "0" * -point + digits
+    e = point - 1
+    return f"{sign}{digits[0]}{'.' + digits[1:] if len(digits) > 1 else ''}e{'+' if e > 0 else '-'}{abs(e)}"
 
 
 def load_board(path):
@@ -141,7 +202,7 @@ def canonical(board):
     for t in board.get("tasks", []):
         t = _ordered(t, TASK_KEYS, REQUIRED_TASK_KEYS)
         if "notes" in t:
-            t["notes"] = [_ordered(n, NOTE_KEYS, NOTE_KEYS) for n in t["notes"]]
+            t["notes"] = [_ordered(n, NOTE_KEYS, REQUIRED_NOTE_KEYS) for n in t["notes"]]
         tasks.append(t)
     out["tasks"] = tasks
     for k, v in board.items():
@@ -155,8 +216,35 @@ def canonical(board):
 _STR_ARRAY = re.compile(r'\[\n\s*("(?:[^"\\\n]|\\.)*"(?:,\n\s*"(?:[^"\\\n]|\\.)*")*)\n\s*\]')
 
 
+_INDEX_KEY = re.compile(r"(?:0|[1-9][0-9]*)\Z")
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def _json(v, indent=""):
+    """JSON.stringify(v, null, 2): integer-like keys first, numbers and lone surrogates as JavaScript writes them."""
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return _js_number(v) or "null"
+    if isinstance(v, str):
+        return _LONE_SURROGATE.sub(lambda m: "\\u%04x" % ord(m.group()), json.dumps(v, ensure_ascii=False))
+    inner = indent + "  "
+    if isinstance(v, list):
+        items = [inner + _json(x, inner) for x in v]
+    else:
+        index = sorted((k for k in v if _INDEX_KEY.match(k) and int(k) < 2 ** 32 - 1), key=int)
+        first = set(index)
+        items = [f"{inner}{_json(k)}: {_json(v[k], inner)}" for k in index + [k for k in v if k not in first]]
+    if not items:
+        return "[]" if isinstance(v, list) else "{}"
+    open_, close = "[]" if isinstance(v, list) else "{}"
+    return f"{open_}\n" + ",\n".join(items) + f"\n{indent}{close}"
+
+
 def dumps(board):
-    text = json.dumps(canonical(board), indent=2, ensure_ascii=False)
+    text = _json(canonical(board))
     text = _STR_ARRAY.sub(lambda m: "[" + re.sub(r",\n\s*", ", ", m.group(1)) + "]", text)
     return text + "\n"
 
@@ -170,14 +258,18 @@ def locked(path):
         try:
             os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
             break
-        except (FileExistsError, PermissionError):
+        except (FileExistsError, PermissionError) as e:
+            # Windows also raises PermissionError while another process deletes the lock, so retry until the deadline.
             try:
                 if time.time() - os.path.getmtime(lock) > STALE_LOCK_AGE:
                     os.remove(lock)
                     continue
             except OSError:
-                continue
+                pass
             if time.monotonic() > deadline:
+                if isinstance(e, PermissionError) and not os.path.exists(lock):
+                    raise KanvasError(f"Cannot create the lock file {lock}: permission denied. "
+                                      "Check that you can write to the board's folder.")
                 raise KanvasError(
                     f"Board is busy (lock file {lock}). "
                     "Delete that file if no other kanvas process is running."
@@ -274,28 +366,46 @@ def unmet_deps(task, tasks):
     return out
 
 
+def yolo_active(task):
+    """A YOLO mark counts until its task goes to review: the chain is finished then."""
+    return bool(task.get("yolo")) and task.get("state") not in ("review", "done")
+
+
 def yolo_cover(board):
     """Map task ID (upper case) -> ID of the YOLO task covering it.
 
-    A human sets `yolo` on a task; it covers that task and everything it
-    transitively depends on. Covered proposals count as approved, and
-    finishing a covered task marks it done without review.
+    A human sets `yolo` on a task; until that task goes to review, it covers
+    itself and everything it transitively depends on. Covered proposals count
+    as approved, and finishing a covered task marks it done without review.
+    Only the last YOLO task of a chain goes to review: a YOLO task that another
+    one depends on is covered by it like the rest of the chain.
     """
     tasks = task_map(board)
+    active = [t for t in board["tasks"] if yolo_active(t)]
+    reach = [(t, _upstream(tasks, t)) for t in active]
+    inside = set().union(*(up for _, up in reach))
     cover = {}
-    for t in board["tasks"]:
-        if not t.get("yolo"):
+    for t, up in reach:
+        if t["id"].upper() in inside:
             continue
-        stack = [t["id"].upper()]
-        while stack:
-            cur = stack.pop()
-            if cur in cover:
-                continue
-            cover[cur] = t["id"]
-            d = tasks.get(cur)
-            if d:
-                stack.extend(x.upper() for x in d.get("deps", []))
+        cover.setdefault(t["id"].upper(), t["id"])
+        for k in up:
+            cover.setdefault(k, t["id"])
     return cover
+
+
+def _upstream(tasks, task):
+    """Upper-case IDs of everything `task` transitively depends on."""
+    seen, stack = set(), [x.upper() for x in task.get("deps", [])]
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        d = tasks.get(cur)
+        if d:
+            stack.extend(x.upper() for x in d.get("deps", []))
+    return seen
 
 
 def view_state(task, tasks, cover=None):
@@ -568,7 +678,7 @@ def id_width(tasks):
 
 
 def yolo_mark(task, cover):
-    return "  (YOLO)" if cover and task["state"] != "done" and task["id"].upper() in cover else ""
+    return "  (YOLO)" if cover and task["state"] not in ("review", "done") and task["id"].upper() in cover else ""
 
 
 def print_rows(rows, tasks_by_id, indent="  ", show_state=True, cover=None):
@@ -585,9 +695,11 @@ def print_task(board, task):
     print(f"State:  {view_state(task, tasks, cover)}")
     print(f"Group:  {group_label(board, task.get('group'))}")
     via = cover.get(task["id"].upper())
-    if via and task["state"] != "done":
-        scope = "set on this task" if via == task["id"] else f"through {via}"
-        print(f"YOLO:   {scope}; you may start it without approval, and finishing marks it done (no review)")
+    if via and task["state"] not in ("review", "done"):
+        if via == task["id"]:
+            print("YOLO:   set on this task; you may start it without approval, and finishing sends it to review")
+        else:
+            print(f"YOLO:   through {via}; you may start it without approval, and finishing marks it done (no review)")
     if task.get("deps"):
         print("Depends on:")
         for dep in task["deps"]:
@@ -607,9 +719,13 @@ def print_task(board, task):
     if task.get("notes"):
         print("\nNotes:")
         for n in task["notes"]:
-            when = str(n.get("at", "")).replace("T", " ").replace("Z", " UTC")
-            print(f"  {when}  {n.get('by', '?')}:")
+            edited = f", edited {_when(n['edited'])}" if n.get("edited") else ""
+            print(f"  {_when(n.get('at', ''))}  {n.get('by', '?')}{edited}:")
             print(_indent(n.get("text", ""), "    "))
+
+
+def _when(iso):
+    return str(iso).replace("T", " ").replace("Z", " UTC")
 
 
 def _indent(text, prefix="  "):
@@ -653,9 +769,11 @@ def cmd_status(args):
             done = sum(1 for t in members if t["state"] == "done")
             parts.append(f"{g['name']} [{g['id']}] {done}/{len(members)}")
         print("Groups: " + ", ".join(parts))
-    yolo = [t["id"] for t in board["tasks"] if t.get("yolo") and t["state"] != "done"]
+    yolo = [t["id"] for t in board["tasks"] if cover.get(t["id"].upper()) == t["id"]]
     if yolo:
-        print(f"YOLO: {', '.join(yolo)}. Tasks marked (YOLO) need no approval, and finishing them marks them done.")
+        names = ", ".join(yolo)
+        print(f"YOLO on {names}: tasks marked (YOLO) need no approval and finishing them marks them done; "
+              f"{names} {'itself goes' if len(yolo) == 1 else 'themselves go'} to review.")
     sections = (
         ("doing", "Doing"),
         ("review", "Waiting for human review"),
@@ -809,13 +927,14 @@ def cmd_finish(args):
             raise KanvasError(f"{t['id']} is {view_state(t, task_map(board))}; only tasks in progress can be finished")
         add_note(t, summary, actor(args))
         via = yolo_cover(board).get(t["id"].upper())
-        t["state"] = "done" if via else "review"
+        t["state"] = "done" if via and via.upper() != t["id"].upper() else "review"
         return t, via
 
     t, via = mutate(path, op)
-    if via:
-        scope = "is set on it" if via == t["id"] else f"covers it through {via}"
-        print(f"Finished {t['id']} (doing -> done). YOLO {scope}, so it skips review.")
+    if t["state"] == "done":
+        print(f"Finished {t['id']} (doing -> done). YOLO covers it through {via}, so it skips review.")
+    elif via:
+        print(f"Finished {t['id']} (doing -> review). YOLO is set on it, so a human reviews it; its YOLO chain is complete.")
     else:
         print(f"Finished {t['id']} (doing -> review). A human will review it.")
 
@@ -1292,7 +1411,10 @@ workflow:  proposed -> todo -> doing -> review -> done
   Agents propose, start, pause, finish, note and add dependencies.
   Humans approve proposals and mark work done in the board (`serve`).
   A todo task with unfinished dependencies shows as blocked.
-  Tasks a human put under YOLO need no approval and skip review.
+  YOLO on a task: it and everything it depends on need no approval;
+  finishing them marks them done, and the YOLO task itself goes to review.
+  When YOLO tasks follow one another in a chain, only the last one goes to
+  review. YOLO ends once its task is in review.
 
 examples:
   kanvas.py status
@@ -1338,7 +1460,8 @@ def build_parser():
     p = add("start", cmd_start, "start a ready task (todo -> doing)")
     p.add_argument("id")
     p.add_argument("-m", "--message", help="optional note, e.g. your plan")
-    p = add("finish", cmd_finish, "hand a task over for review (doing -> review, or done under YOLO); needs a summary")
+    p = add("finish", cmd_finish, "hand a task over for review (doing -> review; done when a YOLO task depends on it); "
+                                  "needs a summary")
     p.add_argument("id")
     p.add_argument("-m", "--message", help="summary of what you did")
     text_sources(p, "summary")

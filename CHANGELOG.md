@@ -3,18 +3,31 @@
 Kanvas runs without Obsidian. The board is a JSON file, agents use a new CLI, and you plan and review in an interactive HTML page.
 
 - Add `kanvas.html`: a single-file board with a dependency graph (swimlanes per group, left-to-right or top-to-bottom, adjustable spacing, lineage highlighting, drag to connect) and a kanban view, right-click menus for cards, dependencies and empty space, undo and redo that keep agents' changes, a task panel with Markdown, notes and review actions, filters, search, dark mode and keyboard shortcuts
+- Status at a glance: cards are outlined in their state colour over a faint fill, proposed cards are dashed, blocked cards hatched, a light circles running tasks and their arrows flow, and the header shows overall progress
+- Agent activity shows as it happens: a toast says what was proposed, started or finished, and by whom when the change came with a note, and the changed cards flash
+- YOLO chains glow gold: their target cards get a ring of fire, their arrows are thick glowing gold lines, turning YOLO on sweeps along the chain, and a header chip counts the tasks agents may take on and jumps to each target
+- New logo, a K whose arms are arrows, in the header, the favicon and `img/icon.svg`
+- A calmer toolbar: the state counts form one filter control, settings you choose once (graph direction, card order, spacing, finished tasks, theme) live in a labelled Display menu, renaming the board and managing groups move to a menu on the board name, the zoom controls form a small horizontal bar, and toolbar tooltips show each control's shortcut
+- Works from the keyboard and with screen readers: menus move with the arrow keys, close with Escape or Tab and give focus back to their button, the Display panel keeps focus while you change settings, Tab goes round the task panel's controls and focus stays there when the panel updates, tooltips also appear on keyboard focus, and the sync status, progress, YOLO chip and icon-only buttons have names
+- The task panel opens on the left and leads with what to do next: a card in the task's state colour holds the latest agent summary and the actions for that state (approve, start, review, reopen), what it waits on, and a copyable `work on ID` for ready tasks; state and group change from the header, the description shows its checklist progress, and notes can be edited or deleted (hover a note, or double-click it); an edited note keeps its author and time and records when it was edited
 - Add `kanvas.py serve`: live two-way sync between the browser, the file and your agents, with compare-and-swap saves
 - Open `kanvas.html` directly in Chrome or Edge to edit `kanvas.json` in place, or export a read-only snapshot with `kanvas.py export`
-- Replace `canvas-tool.py` with `kanvas.py`; boards live in `kanvas.json` with stable formatting for clean diffs
+- Replace `canvas-tool.py` with `kanvas.py`; boards live in `kanvas.json` with stable formatting for clean diffs, which the CLI and the browser write byte for byte the same
 - `finish` requires a summary, stored as a note, so task descriptions stay as written (#10)
-- YOLO: mark a task in the board and agents may start and finish it and everything it depends on without approval or review
+- New tasks pick what they depend on and what they block from a searchable multi-select, or by clicking cards on the graph; choices that would create a cycle are greyed out
+- Tidier graph: arrows that skip levels run between cards instead of under them, arrow ends spread along the card edge, cards are ordered to cut crossings and lined up so more arrows are straight
+- Manual graph layout (`M`): cards keep the order of `kanvas.json`; drag a card up or down to reorder it, or into another swimlane to change its group; drag a swimlane by its name to reorder the groups
+- Delete a group from its swimlane's right-click menu or from Groups… on the board name: its tasks stay without a group, or go with it if you tick the box
+- Arrow keys select the next card in that direction, in the graph and the board
+- The graph hides arrows for dependencies that another dependency already implies, and draws them dashed while one of their tasks is selected
+- YOLO: mark a task in the board and agents may start and finish everything it depends on without approval or review, then the task itself, which comes back to you for review and ends the YOLO; YOLO on a task further along takes over the chain, so each chain ends with one review; its confirmation can be skipped with "Don't ask again" and brought back from the keyboard shortcuts dialog
 - Agents add notes with `note`; notes record the author (`--as`, `KANVAS_AGENT`)
 - Group prefixes may contain digits, such as `L0C-01` (#12), and IDs continue past 99
 - `init` installs an agent skill in `.agents/skills/kanvas/` and never modifies existing files (#8)
 - Text options read UTF-8 from `--stdin` or `--file` on every platform, fixing multi-line and non-ASCII text on Windows (#20, #23)
 - Text arguments may follow options, as in `note DV-01 --as claude "..."`
 - Add `check`, `depend`, `add-group`, `import` (migrates Obsidian `.canvas` boards) and `export`
-- Writes are locked and atomic, so several agents and the browser can work at once
+- Writes are locked and atomic, so several agents and the browser can work at once; a board in a folder you cannot write to fails with a clear message
 - Remove the Obsidian plugin, `canvas-watcher.js`, `RULES.md` and the `.canvas` examples
 - Add a test suite and CI on Linux, macOS and Windows
 

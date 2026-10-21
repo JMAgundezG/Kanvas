@@ -11,6 +11,7 @@ Kanvas is a task board shared by humans and AI agents. This file is for agents a
 | `skill/SKILL.md` | Agent skill that `init` installs into projects |
 | `examples/sample.json` | Demo board, also used by the tests |
 | `tests/test_kanvas.py` | Test suite (`unittest`) |
+| `tests/layout_stats.py`, `tests/fixtures/` | Graph clutter measurements and the boards they run on |
 
 ## Rules
 
@@ -25,6 +26,15 @@ Kanvas is a task board shared by humans and AI agents. This file is for agents a
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+The graph layout lives in the "Graph layout" section of `kanvas.html`, which must stay free of DOM and app state so it runs under Node. When changing it, compare the clutter before and after:
+
+```bash
+python tests/layout_stats.py -v          # crossings, arrows under cards, straight arrows and bends, per board and flow
+python tests/layout_stats.py --manual    # the same for the manual layout, where cards keep their file order
+```
+
+`LayoutTests` fails if crossings, arrows under cards or bends exceed its ceilings; lower them when the layout improves. In the browser console, `kanvasLayoutStats()` measures the board on screen.
 
 For changes to `kanvas.html`, also check the page in a browser:
 

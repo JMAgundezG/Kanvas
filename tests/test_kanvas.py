@@ -11,9 +11,11 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))
 import kanvas  # noqa: E402
 
 SCRIPT = os.path.join(ROOT, "kanvas.py")
@@ -28,6 +30,23 @@ def task(tid, state="todo", group=None, deps=(), **extra):
     t = {"id": tid, "title": f"Task {tid}", "state": state, "group": group, "deps": list(deps)}
     t.update(extra)
     return t
+
+
+def run_html_js(test, code, stdin):
+    """Runs `code` after the pure part of kanvas.html under Node, with `stdin` parsed as JSON in `input`."""
+    node = shutil.which("node")
+    if not node:
+        test.skipTest("node is not installed")
+    with open(os.path.join(ROOT, "kanvas.html"), encoding="utf-8") as f:
+        html = f.read()
+    js = (html[html.index("const STATES ="):html.index("// App state")]
+          + "\nconst input = JSON.parse(require('fs').readFileSync(0, 'utf8'));\n" + code + "\n")
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(js)
+    test.addCleanup(os.remove, f.name)
+    proc = subprocess.run([node, f.name], input=stdin.encode("utf-8"), capture_output=True)
+    test.assertEqual(proc.returncode, 0, proc.stderr.decode())
+    return proc.stdout.decode("utf-8")
 
 
 class TempBoard(unittest.TestCase):
@@ -114,30 +133,39 @@ class FormatTests(unittest.TestCase):
         with self.assertRaises(kanvas.KanvasError):
             kanvas.parse_board('{"kanvas": 99, "groups": [], "tasks": []}')
 
+    def assert_writers_agree(self, text):
+        out = run_html_js(self, "process.stdout.write(serialize(normalize(input)));", text)
+        self.assertEqual(out, kanvas.dumps(kanvas.parse_board(text)))
+
     def test_html_serializer_matches_python(self):
         """kanvas.html must write byte-identical files, or every browser save would reformat the board."""
-        node = shutil.which("node")
-        if not node:
-            self.skipTest("node is not installed")
-        with open(os.path.join(ROOT, "kanvas.html"), encoding="utf-8") as f:
-            html = f.read()
-        start = html.index("const STATES =")
-        end = html.index("// App state")
         board = kanvas.parse_board(self.sample())
         board["tasks"][0]["desc"] = 'Quotes " and \\ backslash, tab\t, unicode é 日本 ✓, </script>'
         board["tasks"][1]["deps"] = []
         board["tasks"][1]["extra"] = {"nested": [1, 2.5, None, True]}
         board["tasks"][2]["yolo"] = True
         board["tasks"][3]["yolo"] = False
+        board["tasks"][3]["notes"] = [
+            {"text": "Edited", "edited": "2026-10-21T10:16:00Z", "by": "human", "at": "2026-10-19T08:00:00Z"},
+            {"at": "2026-10-19T09:00:00Z", "by": "codex", "text": "Not edited", "edited": ""},
+        ]
         board["unknown"] = ["kept"]
-        text = json.dumps(board, ensure_ascii=False)
-        js = html[start:end] + "\nprocess.stdout.write(serialize(normalize(JSON.parse(require('fs').readFileSync(0, 'utf8')))));\n"
-        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
-            f.write(js)
-        self.addCleanup(os.remove, f.name)
-        proc = subprocess.run([node, f.name], input=text.encode("utf-8"), capture_output=True)
-        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
-        self.assertEqual(proc.stdout.decode("utf-8"), kanvas.dumps(kanvas.parse_board(text)))
+        self.assert_writers_agree(json.dumps(board, ensure_ascii=False))
+
+    def test_writers_agree_on_unusual_values(self):
+        """Numbers, numeric keys, keys that are special in JavaScript, missing values and lone surrogates."""
+        self.assert_writers_agree(json.dumps({
+            "kanvas": 1, "title": 5, "10": "ten", "2": "two", "b": True, "01": "kept in place",
+            "constructor": {"__proto__": 1, "toString": None},
+            "groups": [{"id": "G", "name": ""}],
+            "tasks": [
+                {"id": "G-01", "title": None, "state": "", "group": "", "desc": 0, "deps": [], "yolo": 1,
+                 "7": "seven", "constructor": "kept", "__proto__": {"x": 1},
+                 "numbers": [1.0, -0.0, 1e21, 1e-7, 0.1, 2 ** 53 + 1, 10 ** 30, 123.456, 5e-324]},
+                {"id": "G-02", "title": "Lone \ud800 surrogate", "state": None, "deps": ["G-01"], "yolo": 0,
+                 "notes": [{"at": "2026-10-21T09:00:00Z", "by": "codex", "text": "x", "4": 4}]},
+            ],
+        }))
 
 
 class ModelTests(unittest.TestCase):
@@ -166,6 +194,68 @@ class ModelTests(unittest.TestCase):
         self.assertTrue(any("missing task A-09" in e for e in errors), errors)
         self.assertTrue(any("Invalid task id" in e for e in errors), errors)
         self.assertTrue(any("A-04 is doing but depends on unfinished A-03" in w for w in warnings), warnings)
+
+
+class UndoTests(unittest.TestCase):
+    """Undo and redo replay a change on the latest board, which agents may have changed meanwhile."""
+
+    NOTE = {"at": "2026-10-21T09:00:00Z", "by": "human", "text": "Same"}
+    AGENT = {"at": "2026-10-21T09:05:00Z", "by": "codex", "text": "Agent note"}
+
+    def board(self, *tasks):
+        return {"kanvas": 1, "title": "", "groups": [], "tasks": [task("A-01")] + list(tasks)}
+
+    def notes(self, *notes):
+        return self.board(task("A-02", notes=list(notes)))
+
+    def replay(self, cur, frm, to):
+        code = ("const [cur, from, to] = input.map(normalize);\n"
+                "const result = replay(cur, from, to);\n"
+                "process.stdout.write(JSON.stringify({ ...result, board: cur }));")
+        out = json.loads(run_html_js(self, code, json.dumps([cur, frm, to])))
+        return out["board"], out["applied"], out["skipped"]
+
+    def test_undoing_a_note_edit_restores_the_note_whatever_its_key_order(self):
+        edited = dict(self.NOTE, text="Changed", edited="2026-10-21T09:10:00Z")
+        read_back = {k: edited[k] for k in ("edited", "text", "by", "at")}
+        board, _, _ = self.replay(self.notes(read_back, self.AGENT), self.notes(edited), self.notes(self.NOTE))
+        self.assertEqual(board["tasks"][1]["notes"], [self.NOTE, self.AGENT])
+
+    def test_identical_notes_are_counted(self):
+        board, _, _ = self.replay(self.notes(self.NOTE, self.AGENT), self.notes(self.NOTE), self.notes(self.NOTE, self.NOTE))
+        self.assertEqual(board["tasks"][1]["notes"], [self.NOTE, self.NOTE, self.AGENT])
+        board, _, _ = self.replay(board, self.notes(self.NOTE, self.NOTE), self.notes(self.NOTE))
+        self.assertEqual(board["tasks"][1]["notes"], [self.NOTE, self.AGENT])
+
+    def test_deleting_a_group_and_undoing_it(self):
+        board = {"kanvas": 1, "title": "", "groups": [{"id": "A", "name": "Alpha"}, {"id": "B", "name": "Beta"}],
+                 "tasks": [task("A-01", group="A"), task("A-02", group="A"), task("B-01", group="B", deps=["A-01", "A-02"])]}
+        code = ("const b = normalize(input), before = clone(b);\n"
+                "removeGroup(b, 'A', ['a-01', 'B-01']);\n"
+                "const after = clone(b);\n"
+                "replay(b, after, before);\n"
+                "process.stdout.write(JSON.stringify({ before, after, undone: b }));")
+        out = json.loads(run_html_js(self, code, json.dumps(board)))
+        after = out["after"]
+        self.assertEqual(after["groups"], [{"id": "B", "name": "Beta"}])
+        self.assertEqual([(t["id"], t["group"], t["deps"]) for t in after["tasks"]], [("A-02", None, []), ("B-01", "B", ["A-02"])])
+        self.assertEqual(out["undone"], out["before"])
+
+    def test_a_task_someone_changed_is_not_removed(self):
+        created = self.board(task("A-02"))
+        board, applied, skipped = self.replay(self.board(task("A-02", notes=[self.AGENT])), created, self.board())
+        self.assertEqual([t["id"] for t in board["tasks"]], ["A-01", "A-02"])
+        self.assertEqual((applied, skipped), (0, 1))
+        board, applied, _ = self.replay(created, created, self.board())
+        self.assertEqual([t["id"] for t in board["tasks"]], ["A-01"])
+        self.assertEqual(applied, 1)
+
+    def test_identical_notes_are_told_apart_by_rank(self):
+        code = ("const t = normalize(input).tasks[1];\n"
+                "process.stdout.write(JSON.stringify([noteRank(t, t.notes[0]), noteRank(t, t.notes[1]), noteRank(t, { ...t.notes[0] }),\n"
+                "  noteIndex(t, t.notes[0], 1), noteIndex(t, t.notes[0], 5), noteIndex(t, t.notes[2])]));")
+        out = run_html_js(self, code, json.dumps(self.notes(self.NOTE, self.NOTE, self.AGENT)))
+        self.assertEqual(json.loads(out), [0, 1, 0, 1, 1, 2])
 
 
 class WorkflowTests(TempBoard):
@@ -216,6 +306,13 @@ class WorkflowTests(TempBoard):
         self.assertEqual(self.get("DV-05")["desc"], text)
         _, out, _ = self.run_cli("show", "DV-05")
         self.assertIn("Café — naïve ✓ 日本語", out)
+
+    def test_show_marks_edited_notes(self):
+        board = kanvas.parse_board(self.raw())
+        board["tasks"][1]["notes"] = [{"at": "2026-10-19T08:00:00Z", "by": "claude", "edited": "2026-10-21T10:16:00Z", "text": "Parser done"}]
+        write_board(self.path, board)
+        _, out, _ = self.run_cli("show", board["tasks"][1]["id"])
+        self.assertIn("2026-10-19 08:00:00 UTC  claude, edited 2026-10-21 10:16:00 UTC:", out)
 
     def test_multiline_text_from_a_file(self):
         notes = os.path.join(self.dir, "summary.md")
@@ -273,7 +370,7 @@ class YoloTests(TempBoard):
         t = json.loads(self.raw())["tasks"][2]
         self.assertEqual(list(t), ["id", "title", "state", "group", "deps", "yolo"])
 
-    def test_covered_tasks_skip_review_and_others_do_not(self):
+    def test_covered_tasks_skip_review_and_the_yolo_task_does_not(self):
         _, out, _ = self.run_cli("ready")
         self.assertEqual(out.splitlines(), ["DV-02  Task DV-02  (YOLO)", "DV-05  Task DV-05"])
         self.run_cli("start", "DV-02")
@@ -282,17 +379,68 @@ class YoloTests(TempBoard):
         self.assertEqual(self.get("DV-02")["state"], "done")
         self.run_cli("start", "DV-03")
         _, out, _ = self.run_cli("finish", "DV-03", "-m", "Feature done")
+        self.assertIn("doing -> review", out)
         self.assertIn("YOLO is set on it", out)
-        self.assertEqual(self.get("DV-03")["state"], "done")
+        self.assertEqual(self.get("DV-03")["state"], "review")
         self.run_cli("start", "DV-05")
         self.run_cli("finish", "DV-05", "-m", "Outside the chain")
         self.assertEqual(self.get("DV-05")["state"], "review")
+
+    def test_only_the_last_yolo_task_of_a_chain_goes_to_review(self):
+        board = self.board()
+        kanvas.find_task(board, "DV-02")["yolo"] = True
+        board["tasks"].append(board["tasks"].pop(1))  # DV-03's YOLO comes first in the file
+        write_board(self.path, board)
+        _, out, _ = self.run_cli("status")
+        self.assertIn("YOLO on DV-03:", out)
+        _, out, _ = self.run_cli("show", "DV-02")
+        self.assertIn("YOLO:   through DV-03", out)
+        self.run_cli("start", "DV-02")
+        _, out, _ = self.run_cli("finish", "DV-02", "-m", "Parser done")
+        self.assertIn("YOLO covers it through DV-03", out)
+        self.assertEqual(self.get("DV-02")["state"], "done")
+        self.run_cli("start", "DV-03")
+        self.run_cli("finish", "DV-03", "-m", "Feature done")
+        self.assertEqual(self.get("DV-03")["state"], "review")
+
+    def test_html_yolo_cover_matches_python(self):
+        board = kanvas.new_board()
+        board["tasks"] = [task("X-03", deps=["X-02"], yolo=True), task("X-01"), task("X-02", deps=["X-01"], yolo=True),
+                          task("X-04", deps=["X-01"], yolo=True), task("X-05", deps=["X-03", "X-04"]),
+                          task("X-06"), task("X-07", "review", deps=["X-06"], yolo=True), task("X-08", "done", deps=["X-06"], yolo=True)]
+        out = run_html_js(self, "process.stdout.write(JSON.stringify(Object.fromEntries(yoloCoverIn(normalize(input)))));", json.dumps(board))
+        cover = kanvas.yolo_cover(board)
+        self.assertEqual(json.loads(out), cover)
+        self.assertEqual(cover, {"X-03": "X-03", "X-02": "X-03", "X-01": "X-03", "X-04": "X-04"})
+
+    def test_html_yolo_takes_over_the_chain(self):
+        board = kanvas.new_board()
+        board["tasks"] = [task("Y-01", "review", yolo=True), task("Y-02", "proposed", deps=["Y-01"]),
+                          task("Y-03", deps=["Y-02"], yolo=True), task("Y-04", "proposed", deps=["Y-03", "Y-05"]),
+                          task("Y-05", "done", yolo=True), task("Y-06", "review", yolo=True)]
+        out = run_html_js(self, "const b = normalize(input); yoloOn(b, 'y-04');"
+                                "process.stdout.write(JSON.stringify(b.tasks.map((t) => [t.id, t.state, !!t.yolo])));", json.dumps(board))
+        self.assertEqual(json.loads(out), [["Y-01", "done", False], ["Y-02", "todo", False], ["Y-03", "todo", False],
+                                           ["Y-04", "todo", True], ["Y-05", "done", True], ["Y-06", "review", True]])
+
+    def test_yolo_ends_when_its_task_reaches_review(self):
+        board = self.board()
+        kanvas.find_task(board, "DV-03")["state"] = "review"
+        write_board(self.path, board)
+        _, out, _ = self.run_cli("status")
+        self.assertNotIn("YOLO on", out)
+        _, out, _ = self.run_cli("ready")
+        self.assertNotIn("(YOLO)", out)
+        self.run_cli("start", "DV-02")
+        self.run_cli("finish", "DV-02", "-m", "Parser done")
+        self.assertEqual(self.get("DV-02")["state"], "review")
 
     def test_proposals_linked_into_the_chain_count_as_approved(self):
         self.assertIn("a human must approve it", self.fails("start", "DV-04"))
         self.run_cli("depend", "DV-02", "DV-04")
         _, out, _ = self.run_cli("status")
-        self.assertIn("YOLO: DV-03", out)
+        self.assertIn("YOLO on DV-03", out)
+        self.assertIn("DV-03 itself goes to review", out)
         self.assertNotIn("Proposed, awaiting human approval", out)
         _, out, _ = self.run_cli("start", "DV-04")
         self.assertIn("proposed -> doing, approved by YOLO", out)
@@ -480,6 +628,19 @@ class ConcurrencyTests(TempBoard):
         self.run_cli("note", "DV-02", "after a crash")
         self.assertFalse(os.path.exists(lock))
 
+    def test_busy_lock_gives_up_at_the_deadline(self):
+        open(self.path + ".lock", "w").close()
+        with mock.patch.object(kanvas, "LOCK_TIMEOUT", 0.2):
+            with self.assertRaisesRegex(kanvas.KanvasError, "Board is busy"):
+                kanvas.mutate(self.path, lambda board: None)
+
+    def test_unwritable_folder_is_reported(self):
+        started = time.monotonic()
+        with mock.patch.object(kanvas, "LOCK_TIMEOUT", 0.2), mock.patch("os.open", side_effect=PermissionError):
+            with self.assertRaisesRegex(kanvas.KanvasError, "permission denied"):
+                kanvas.mutate(self.path, lambda board: None)
+        self.assertLess(time.monotonic() - started, 5)
+
 
 class ServerTests(TempBoard):
     def setUp(self):
@@ -557,6 +718,39 @@ class ServerTests(TempBoard):
         self.assertEqual(status, 200)
         text = self.raw().decode("utf-8")
         self.assertEqual(text, kanvas.dumps(kanvas.parse_board(text)))
+
+
+class LayoutTests(unittest.TestCase):
+    """The graph layout must not get more cluttered. Lower the ceilings when it improves;
+    `python tests/layout_stats.py -v` shows the current numbers and what causes them."""
+
+    # (board, flows down): (crossing arrow pairs, arrows running under cards, bends)
+    CEILINGS = {
+        ("sample.json", False): (3, 0, 12),
+        ("sample.json", True): (3, 0, 12),
+        ("tetris.json", False): (22, 0, 26),
+        ("tetris.json", True): (22, 0, 26),
+    }
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node is not installed")
+
+    def test_clutter_stays_under_ceilings(self):
+        import layout_stats
+        for (path, vertical), m in layout_stats.measure(layout_stats.DEFAULT_BOARDS).items():
+            crossings, behind, bends = self.CEILINGS[(os.path.basename(path), vertical)]
+            with self.subTest(board=os.path.basename(path), vertical=vertical):
+                self.assertLessEqual(m["crossings"], crossings)
+                self.assertLessEqual(m["behind"], behind)
+                self.assertLessEqual(m["bends"], bends)
+
+    def test_manual_layout_keeps_file_order(self):
+        import layout_stats
+        for (path, vertical), m in layout_stats.measure(layout_stats.DEFAULT_BOARDS, manual=True).items():
+            with self.subTest(board=os.path.basename(path), vertical=vertical):
+                self.assertEqual(m["misordered"], 0)
+                self.assertEqual(m["behind"], 0)
 
 
 if __name__ == "__main__":
