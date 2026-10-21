@@ -12,7 +12,7 @@ Kanvas is a task board shared by humans and AI agents. This file is for agents a
 | `examples/sample.json` | Demo board, also used by the tests |
 | `tests/test_kanvas.py` | Test suite (`unittest`) |
 | `tests/layout_stats.py`, `tests/fixtures/` | Graph clutter measurements and the boards they run on |
-| `pyproject.toml` | The `kanvas-board` package, which installs the `kanvas` command. Its version comes from `VERSION` in `kanvas.py`, and the `VERSION` file must match. hatchling is needed only to build it |
+| `pyproject.toml` | The `kanvas-board` package, which installs the `kanvas` command. Its version comes from `VERSION` in `kanvas.py`, and the `VERSION` file must match. hatchling and hatch-fancy-pypi-readme, which points the README's relative links at GitHub for PyPI, are needed only to build it |
 | `tests/check_installed.py` | Runs an installed `kanvas` command through `init`, subfolders, `export`, `serve` and the project copy |
 
 ## Rules

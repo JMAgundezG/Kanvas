@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/XMihura/Kanvas/main/img/icon.svg" alt="" width="72">
+<img src="img/icon.svg" alt="" width="72">
 
 # Kanvas
 
@@ -6,7 +6,7 @@ A task board you share with your AI coding agents. Agents plan and report throug
 
 One JSON file, one Python script, one HTML page. No accounts, no build step, no dependencies.
 
-![The dependency graph of a sample project](https://raw.githubusercontent.com/XMihura/Kanvas/main/img/graph.png)
+![The dependency graph of a sample project](img/graph.png)
 
 ## Why
 
@@ -122,7 +122,7 @@ Agents may propose tasks and groups, start ready tasks, finish or pause tasks in
 
 ## The board
 
-![Reviewing a finished task](https://raw.githubusercontent.com/XMihura/Kanvas/main/img/review.png)
+![Reviewing a finished task](img/review.png)
 
 - **Graph view.** One swimlane per group, laid out by dependency depth, flowing left to right or top to bottom (switch under Display, or press `L`). The automatic layout orders the cards for fewer crossings and straighter arrows, and arrows that skip levels run between cards. Set the card order to Manual under Display (or press `M`) to order the cards yourself: drag a card up or down within its level, or into another swimlane to change its group, and drag a swimlane by its name to reorder the groups. Your order is saved in `kanvas.json`, and right-clicking empty space offers to start from the automatic order. The spacing slider under Display, or `[` and `]`, compresses or extends the space between dependency levels. Hover or select a task to highlight everything it depends on and everything waiting for it. A dependency that another dependency already implies (C needs A and B, and B needs A) stays in the file but is drawn only while A or C is selected, as a dashed arrow. Each card has a dot on its incoming and outgoing side: drag one onto another card to add a dependency in that direction (cycles are refused). Click an arrow to open or remove the dependency.
 - **Board view.** Kanban columns by state. Drag cards between columns, or approve every proposal at once.
@@ -133,7 +133,7 @@ Agents may propose tasks and groups, start ready tasks, finish or pause tasks in
 - **YOLO.** "YOLO up to here…" on a card (right-click menu or task panel) hands that task and everything it depends on to the agents: they may start the chain's proposals without approval, and the tasks they finish on the way are done without review. The YOLO task itself comes back to you for review, so a YOLO run ends with one review of the result, and YOLO stops applying once that task is in review. YOLO on a task further along takes over the chain: the YOLO marks inside it go, so only the last task comes back for review. Turning it on approves the chain's current proposals and marks the other tasks waiting for review as done. The task carries a YOLO tag and the tasks it covers a lightning icon; the same menu turns it off.
 - **Everything else.** Filter by state, search (press `/`), hide finished work, groups with their own ID prefixes (from the menu on the board name), light, dark or system theme, keyboard shortcuts (press `?`), arrow keys to move from card to card and Enter to move into its panel (Tab goes round the panel, Escape comes back out), and links: `#BE-02` in the URL opens that task.
 
-![The board view in dark mode](https://raw.githubusercontent.com/XMihura/Kanvas/main/img/board-dark.png)
+![The board view in dark mode](img/board-dark.png)
 
 There are three ways to open it:
 
@@ -207,7 +207,7 @@ Writes take a short lock and replace the file atomically, so several agents and 
 }
 ```
 
-States are `proposed`, `todo`, `doing`, `review` and `done`; blocked is computed. `"yolo": true` on a task puts it and everything it depends on under YOLO. A note edited in the browser gets an `"edited"` time next to its original `"at"`. The CLI and the browser write the same canonical formatting, so diffs show only real changes. Unknown fields are preserved. See [`examples/sample.json`](https://github.com/XMihura/Kanvas/blob/main/examples/sample.json) for a complete board.
+States are `proposed`, `todo`, `doing`, `review` and `done`; blocked is computed. `"yolo": true` on a task puts it and everything it depends on under YOLO. A note edited in the browser gets an `"edited"` time next to its original `"at"`. The CLI and the browser write the same canonical formatting, so diffs show only real changes. Unknown fields are preserved. See [`examples/sample.json`](examples/sample.json) for a complete board.
 
 ## Migrating from Kanvas 0.x (Obsidian)
 
@@ -224,7 +224,7 @@ Card colors become states, groups come from the canvas groups, arrows become dep
 python -m unittest discover -s tests -v
 ```
 
-The suite is standard library only; one test also runs the browser's serializer under Node.js when it is installed, to check that both sides write identical files. Contributor notes are in [AGENTS.md](https://github.com/XMihura/Kanvas/blob/main/AGENTS.md).
+The suite is standard library only; one test also runs the browser's serializer under Node.js when it is installed, to check that both sides write identical files. Contributor notes are in [AGENTS.md](AGENTS.md).
 
 ## License
 
