@@ -64,17 +64,19 @@ def check_serve(kanvas, cwd, log_path):
     port = free_port()
     with open(log_path, "w", encoding="utf-8") as log:
         server = subprocess.Popen(kanvas + ["serve", "--no-open", "--port", str(port)],
-                                  cwd=cwd, env=ENV, stdout=log, stderr=subprocess.STDOUT)
+                                  cwd=cwd, env=dict(ENV, PYTHONUNBUFFERED="1"), stdout=log, stderr=subprocess.STDOUT)
     try:
         deadline = time.time() + 20
         while True:
             try:
                 board = json.loads(get(f"http://127.0.0.1:{port}/api/board"))
                 break
-            except OSError:
+            except OSError as e:
                 if server.poll() is not None or time.time() > deadline:
+                    state = "exited with " + str(server.returncode) if server.poll() is not None else "still running"
                     with open(log_path, encoding="utf-8", errors="replace") as f:
-                        raise CheckFailed(f"serve did not answer on port {port}\n{f.read()}")
+                        raise CheckFailed(f"serve did not answer on port {port} ({state}); last error: {e!r}\n"
+                                          f"serve printed:\n{f.read()}")
                 time.sleep(0.2)
         if TITLE not in [t["title"] for t in board["tasks"]]:
             raise CheckFailed(f"serve returned a different board: {board}")
