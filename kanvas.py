@@ -744,10 +744,22 @@ STATE_HINTS = {
 }
 
 
+def kanvas_on_path():
+    """True if the `kanvas` command is there to type after this run.
+
+    uvx and `uv run` (which set UV) put the running environment on PATH only while it runs.
+    """
+    found = shutil.which("kanvas")
+    if not found or not os.environ.get("UV"):
+        return bool(found)
+    inside = os.path.normcase(os.path.join(os.path.abspath(sys.prefix), ""))
+    return not os.path.normcase(os.path.abspath(found)).startswith(inside)
+
+
 def command_line(rest=""):
     """The command to type to run Kanvas the way it was started, followed by `rest`."""
     if INSTALLED:
-        head = "kanvas" if shutil.which("kanvas") else "uvx kanvas-board"
+        head = "kanvas" if kanvas_on_path() else "uvx kanvas-board"
     else:
         script = sys.argv[0] or "kanvas.py"
         head = f'python "{script}"' if " " in script else f"python {script}"
@@ -756,7 +768,7 @@ def command_line(rest=""):
 
 def project_command(rest=""):
     """What to type inside a project after `init`: the installed command, or the project's own copy."""
-    head = "kanvas" if INSTALLED and shutil.which("kanvas") else "python .agents/skills/kanvas/kanvas.py"
+    head = "kanvas" if INSTALLED and kanvas_on_path() else "python .agents/skills/kanvas/kanvas.py"
     return f"{head} {rest}" if rest else head
 
 
@@ -1197,28 +1209,36 @@ def init_project(target, reason=None, next_steps=True):
     if not skill_md or not os.path.isfile(HTML_FILE):
         raise KanvasError("kanvas.html and SKILL.md must sit next to kanvas.py (or in skill/)")
 
+    # The skill folders go first: agent sandboxes such as Codex's keep .agents/ read-only,
+    # and a refused write should leave the project as it was.
     report = []
+    skill_dir = os.path.join(target, ".agents", "skills", "kanvas")
+    mirrors = [".claude"] + [d for d in (".cursor", ".gemini") if os.path.isdir(os.path.join(target, d))]
+    try:
+        os.makedirs(skill_dir, exist_ok=True)
+        for src, name in ((os.path.abspath(__file__), "kanvas.py"), (HTML_FILE, "kanvas.html"), (skill_md, "SKILL.md")):
+            dst = os.path.join(skill_dir, name)
+            if os.path.abspath(src) != os.path.abspath(dst):
+                shutil.copyfile(src, dst)
+        report.append("installed .agents/skills/kanvas/ (kanvas.py, kanvas.html, SKILL.md)")
+        for base in mirrors:
+            dst_dir = os.path.join(target, base, "skills", "kanvas")
+            os.makedirs(dst_dir, exist_ok=True)
+            shutil.copyfile(skill_md, os.path.join(dst_dir, "SKILL.md"))
+            report.append(f"installed {base}/skills/kanvas/SKILL.md")
+    except OSError as e:
+        raise KanvasError(
+            f"Could not write {os.path.relpath(e.filename or skill_dir, target)}: {e.strerror or e}. "
+            "Agent sandboxes often keep .agents/ read-only; run "
+            f"`{command_line('init')}` outside the sandbox, or ask the user to run it."
+        ) from None
+
     board_file = os.path.join(target, BOARD_FILE)
     if os.path.exists(board_file):
-        report.append(f"kept      {BOARD_FILE}")
+        report.insert(0, f"kept      {BOARD_FILE}")
     else:
         write_text_atomic(board_file, dumps(new_board(os.path.basename(target))))
-        report.append(f"created   {BOARD_FILE}")
-
-    skill_dir = os.path.join(target, ".agents", "skills", "kanvas")
-    os.makedirs(skill_dir, exist_ok=True)
-    for src, name in ((os.path.abspath(__file__), "kanvas.py"), (HTML_FILE, "kanvas.html"), (skill_md, "SKILL.md")):
-        dst = os.path.join(skill_dir, name)
-        if os.path.abspath(src) != os.path.abspath(dst):
-            shutil.copyfile(src, dst)
-    report.append("installed .agents/skills/kanvas/ (kanvas.py, kanvas.html, SKILL.md)")
-
-    mirrors = [".claude"] + [d for d in (".cursor", ".gemini") if os.path.isdir(os.path.join(target, d))]
-    for base in mirrors:
-        dst_dir = os.path.join(target, base, "skills", "kanvas")
-        os.makedirs(dst_dir, exist_ok=True)
-        shutil.copyfile(skill_md, os.path.join(dst_dir, "SKILL.md"))
-        report.append(f"installed {base}/skills/kanvas/SKILL.md")
+        report.insert(0, f"created   {BOARD_FILE}")
 
     if not any(f.lower() == "agents.md" for f in os.listdir(target)):
         with open(os.path.join(target, "AGENTS.md"), "x", encoding="utf-8", newline="\n") as f:

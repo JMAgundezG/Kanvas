@@ -606,6 +606,18 @@ class InitTests(unittest.TestCase):
         out = self.init()
         self.assertNotIn("AGENTS.md", out)
 
+    def test_a_refused_skill_folder_leaves_the_project_untouched(self):
+        """Agent sandboxes such as Codex's keep .agents/ read-only."""
+        with open(os.path.join(self.dir, ".agents"), "w", encoding="utf-8") as f:
+            f.write("not a folder")
+        proc = subprocess.run([sys.executable, SCRIPT, "init", self.dir], capture_output=True)
+        err = proc.stderr.decode("utf-8")
+        self.assertEqual(proc.returncode, 1, err)
+        self.assertIn("Could not write .agents", err)
+        self.assertIn("init` outside the sandbox", err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(os.listdir(self.dir), [".agents"])
+
     def test_existing_agent_instructions_stay_byte_identical(self):
         mine = "# Mine\r\nNo newline at the end é".encode("utf-8")
         for name, creates in (("AGENTS.md", False), ("agents.md", False), ("CLAUDE.md", True)):
@@ -675,6 +687,19 @@ class InstalledCommandTests(TempBoard):
         with self.running(argv0="/home/me/My Tools/kanvas.py"):
             self.assertEqual(kanvas.command_line("init"), 'python "/home/me/My Tools/kanvas.py" init')
             self.assertEqual(kanvas.command_line(), 'python "/home/me/My Tools/kanvas.py"')
+
+    def test_the_kanvas_of_a_uvx_run_does_not_count(self):
+        """uvx puts its temporary environment on PATH and sets UV; that `kanvas` is gone afterwards."""
+        temporary = os.path.join(sys.prefix, "Scripts" if os.name == "nt" else "bin", "kanvas")
+        for found, uv, expected in ((temporary, "/usr/bin/uv", "uvx kanvas-board init"),
+                                    (temporary, None, "kanvas init"),
+                                    ("/usr/local/bin/kanvas", "/usr/bin/uv", "kanvas init")):
+            with self.subTest(found=found, uv=uv), mock.patch.object(kanvas, "INSTALLED", True), \
+                    mock.patch("shutil.which", return_value=found), \
+                    mock.patch.dict(os.environ, {"UV": uv} if uv else {}, clear=False):
+                if not uv:
+                    os.environ.pop("UV", None)
+                self.assertEqual(kanvas.command_line("init"), expected)
 
     def test_help_names_the_program_as_typed(self):
         with self.running(installed=True):

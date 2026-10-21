@@ -68,6 +68,14 @@ Plan and track work on the Kanvas board; follow .agents/skills/kanvas/SKILL.md.
 
 The plan arrives as proposals. Approve the ones you want, and tell the agent to start working.
 
+### Let your agent set it up
+
+With uv installed (step 1), you can hand steps 2 to 4 to your agent. Open Claude Code, Codex, Cursor or Gemini CLI in your project's folder and paste:
+
+> Set up Kanvas in this project with `uvx kanvas-board init` (https://github.com/XMihura/Kanvas), then follow `.agents/skills/kanvas/SKILL.md` to interview me and plan the project on the board.
+
+The agent creates the board, asks you about the project and proposes a plan. To watch the board, run `uvx kanvas-board serve` in the project's folder, or `kanvas serve` if you installed Kanvas. Codex keeps `.agents/` read-only in its sandbox, so it asks your permission to run `init` outside it.
+
 ### Other ways to install and update
 
 Try Kanvas without installing it:
