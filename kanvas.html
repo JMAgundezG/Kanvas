@@ -1766,7 +1766,7 @@ function setSync(status, detail) {
   el.className = `sync ${cls}`;
   el.querySelector(".label").textContent = label;
   el.dataset.tip = detail || {
-    server: "Synced with kanvas.json through kanvas.py serve. Agent changes appear within a second.",
+    server: "Synced with kanvas.json through the Kanvas server. Agent changes appear within a second.",
     file: "Reading and writing the file directly. Agent changes appear within a second.",
     memory: "Changes live in this tab only. Use Save to download the board.",
     snapshot: store.at ? `Exported ${new Date(store.at).toLocaleString()}` : "Exported board",
@@ -2094,7 +2094,7 @@ function renderGraph() {
       h("h2", {}, board.tasks.length ? "Everything here is done" : "An empty board"),
       board.tasks.length
         ? h("p", {}, "Finished tasks are hidden. Press H to show them.")
-        : h("p", {}, "Add the first task, or ask your agent to interview you and propose a plan with ", h("code", {}, "kanvas.py batch"), "."),
+        : h("p", {}, "Add the first task, or ask your agent to interview you and plan the project."),
       board.tasks.length || store.readOnly ? null : h("button", { class: "primary", onclick: () => newTaskDialog() }, icon("plus"), "New task")));
   }
   applyDim();
@@ -3088,7 +3088,7 @@ function helpDialog() {
   const keys = [["N", "New task"], ["/", "Filter tasks"], ["G / B", "Graph or board view"], ["L", "Graph left to right or top to bottom"], ["M", "Automatic layout, or order cards and groups yourself by dragging them"], ["H", "Hide or show finished tasks"], ["F", "Fit the graph to the screen"], ["+ / -", "Zoom"], ["[ / ]", "Compress or extend the graph"], ["← / ↑ / ↓ / →", "Select the next card in that direction"], ["Enter", "Move into the selected task's panel, where Tab goes round its controls"], ["Esc", "Leave the panel, close it, or clear the filter"], ["Right-click", "Actions for a card, a dependency or empty space"], ["Ctrl+Z", "Undo your last change"], ["Ctrl+Shift+Z / Ctrl+Y", "Redo"], ["Ctrl+Enter", "Save the text you are editing"]];
   modal("Keyboard shortcuts", [
     h("div", { class: "keys" }, keys.map(([k, v]) => [h("span", {}, k.split(" / ").map((x, i) => [i ? " / " : "", h("kbd", {}, x)])), h("span", {}, v)])),
-    h("p", {}, "Agents work through ", h("code", {}, "kanvas.py"), "; their changes appear here within a second."),
+    h("p", {}, "Agents work through the Kanvas command line; their changes appear here within a second."),
     prefs.skipYoloWarning ? h("p", {}, "The YOLO confirmation is hidden. ",
       h("button", { type: "button", class: "link", onclick: (e) => { delete prefs.skipYoloWarning; savePrefs(); e.target.closest("p").remove(); toast("The YOLO confirmation will show again"); } }, "Show it again")) : null,
   ], { ok: "Close", cancel: null });
@@ -3381,7 +3381,8 @@ function showWelcome() {
     h("p", {}, canPick
       ? "Changes are written straight back to the file, and agent changes show up live."
       : "This browser cannot write files directly: changes stay in the tab until you save them."),
-    h("p", {}, "Live sync in any browser: ", h("code", {}, "python kanvas.py serve")),
+    h("p", {}, "Live sync in any browser: run ", h("code", {}, "kanvas serve"), " in the project folder, or ",
+      h("code", {}, "python .agents/skills/kanvas/kanvas.py serve"), " if the command is not installed."),
     fileInput));
   w.hidden = false;
   w.addEventListener("dragover", (e) => { e.preventDefault(); w.classList.add("drag"); });
