@@ -1134,8 +1134,60 @@ def cmd_depend(args):
 # ---------------------------------------------------------------------------
 
 
+AGENTS_LINE = "Plan and track work on the Kanvas board; follow .agents/skills/kanvas/SKILL.md."
+
+
+def find_git_top(start=None):
+    """Return the top folder of the git repository around `start`, or None."""
+    d = os.path.abspath(start or os.getcwd())
+    while True:
+        # A .git file marks worktrees and submodules.
+        if os.path.exists(os.path.join(d, ".git")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
+def project_folder(start=None):
+    """Return the folder to set up when none is given, and the reason when it is not `start` itself.
+
+    An existing board wins, so `init` never creates a second board above it.
+    """
+    here = os.path.abspath(start or os.getcwd())
+    board = find_board(here)
+    if board:
+        found, reason = os.path.dirname(board), f"the folder of the existing {BOARD_FILE}"
+    else:
+        found, reason = find_git_top(here), "the top folder of this git repository"
+    if not found or found == here:
+        return here, None
+    return found, reason
+
+
+def points_to_skill(folder):
+    """True if an AGENTS.md or CLAUDE.md in `folder` already sends agents to the Kanvas skill."""
+    for name in os.listdir(folder):
+        if name.lower() in ("agents.md", "claude.md"):
+            try:
+                with open(os.path.join(folder, name), "rb") as f:
+                    if b".agents/skills/kanvas/SKILL.md" in f.read():
+                        return True
+            except OSError:
+                pass
+    return False
+
+
 def cmd_init(args):
-    target = os.path.abspath(args.dir)
+    if args.dir is None:
+        init_project(*project_folder())
+    else:
+        init_project(os.path.abspath(args.dir))
+
+
+def init_project(target, reason=None):
+    """Set up Kanvas in `target`, print what was done, and return the board's path."""
     if not os.path.isdir(target):
         raise KanvasError(f"Directory does not exist: {target}")
     skill_md = next(
@@ -1168,18 +1220,26 @@ def cmd_init(args):
         shutil.copyfile(skill_md, os.path.join(dst_dir, "SKILL.md"))
         report.append(f"installed {base}/skills/kanvas/SKILL.md")
 
-    print(f"Kanvas {VERSION} in {target}\n")
+    if not any(f.lower() == "agents.md" for f in os.listdir(target)):
+        with open(os.path.join(target, "AGENTS.md"), "x", encoding="utf-8", newline="\n") as f:
+            f.write(f"# Agent instructions\n\n{AGENTS_LINE}\n")
+        report.append("created   AGENTS.md")
+
+    print(f"Kanvas {VERSION} in {target}" + (f", {reason}" if reason else "") + "\n")
     for line in report:
         print(f"  {line}")
     legacy = sorted(f for f in os.listdir(target) if f.endswith(".canvas"))
     if legacy and not load_board(board_file)["tasks"]:
+        migrate = project_command(f'import "{legacy[0]}"')
         print(f"\nFound {', '.join(legacy)}. Migrate a Kanvas 0.x Obsidian board with:")
-        print(f'  python .agents/skills/kanvas/kanvas.py import "{legacy[0]}"')
+        print(f"  {migrate}")
     print("\nOpen the board:")
-    print("  python .agents/skills/kanvas/kanvas.py serve")
-    print("\nAgents without skill support: add this line to AGENTS.md or CLAUDE.md:")
-    print("  Plan and track work on the Kanvas board; follow .agents/skills/kanvas/SKILL.md.")
+    print(f"  {project_command('serve')}")
+    if not points_to_skill(target):
+        print("\nAgents without skill support: add this line to AGENTS.md or CLAUDE.md:")
+        print(f"  {AGENTS_LINE}")
     print("\nNo existing file was modified.")
+    return board_file
 
 
 CANVAS_STATES = {"6": "proposed", "1": "todo", "0": "todo", "2": "doing", "5": "review", "4": "done"}
@@ -1433,8 +1493,33 @@ def start_server(path, host="127.0.0.1", port=8765, quiet=False):
     raise KanvasError(f"No free port between {port} and {port + 19}: {last_error}")
 
 
+def offer_board():
+    """Ask the person at the terminal to set up Kanvas; return the new board's path, or None."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return None
+    target, reason = project_folder()
+    try:
+        answer = input(f"No {BOARD_FILE} here. Create one in {target}? [Y/n] ")
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+    if answer.strip().lower() not in ("", "y", "yes"):
+        return None
+    print()
+    path = init_project(target, reason)
+    print()
+    return path
+
+
 def cmd_serve(args):
-    path = board_path(args)
+    try:
+        path = board_path(args)
+    except KanvasError:
+        if getattr(args, "board", None) or os.environ.get("KANVAS_BOARD"):
+            raise
+        path = offer_board()
+        if not path:
+            raise
     if not os.path.isfile(HTML_FILE):
         raise KanvasError("kanvas.html is missing next to kanvas.py")
     server = start_server(path, args.host, args.port)
@@ -1548,7 +1633,8 @@ def build_parser():
     p.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 for containers or remote machines")
     p.add_argument("--no-open", action="store_true", help="do not open a browser")
     p = add("init", cmd_init, "set up Kanvas in a project (never overwrites files)")
-    p.add_argument("dir", nargs="?", default=".")
+    p.add_argument("dir", nargs="?", help=f"project folder (default: the folder of the nearest {BOARD_FILE}, "
+                                          "else the top folder of the git repository, else this one)")
     p = add("import", cmd_import, "convert an Obsidian .canvas board from Kanvas 0.x")
     p.add_argument("canvas")
     p.add_argument("-o", "--output", help=f"output file (default: {BOARD_FILE} next to the canvas)")

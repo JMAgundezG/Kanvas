@@ -503,13 +503,21 @@ class ProposalTests(TempBoard):
 
 class InitTests(unittest.TestCase):
     def setUp(self):
-        self.dir = tempfile.mkdtemp(prefix="kanvas-init-")
+        self.dir = os.path.realpath(tempfile.mkdtemp(prefix="kanvas-init-"))
         self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
 
-    def init(self):
-        proc = subprocess.run([sys.executable, SCRIPT, "init", self.dir], capture_output=True)
+    def init(self, *args, cwd=None):
+        """Runs `init` on self.dir, or with `args` from `cwd` when either is given."""
+        if not args and cwd is None:
+            args = (self.dir,)
+        proc = subprocess.run([sys.executable, SCRIPT, "init", *args], cwd=cwd, capture_output=True)
         self.assertEqual(proc.returncode, 0, proc.stderr.decode())
         return proc.stdout.decode("utf-8")
+
+    def folder(self, *parts):
+        path = os.path.join(self.dir, *parts)
+        os.makedirs(path, exist_ok=True)
+        return path
 
     def test_init_installs_the_skill_and_never_overwrites(self):
         mine = "# My agent instructions\n"
@@ -519,6 +527,8 @@ class InitTests(unittest.TestCase):
         os.makedirs(os.path.join(self.dir, ".cursor"))
         out = self.init()
         self.assertIn("created   kanvas.json", out)
+        self.assertNotIn("created   AGENTS.md", out)
+        self.assertIn("add this line to AGENTS.md or CLAUDE.md", out)
         for rel in (".agents/skills/kanvas/kanvas.py", ".agents/skills/kanvas/kanvas.html",
                     ".agents/skills/kanvas/SKILL.md", ".claude/skills/kanvas/SKILL.md", ".cursor/skills/kanvas/SKILL.md"):
             self.assertTrue(os.path.isfile(os.path.join(self.dir, rel)), rel)
@@ -537,6 +547,76 @@ class InitTests(unittest.TestCase):
         installed = os.path.join(self.dir, ".agents", "skills", "kanvas", "kanvas.py")
         proc = subprocess.run([sys.executable, installed, "status"], cwd=self.dir, capture_output=True)
         self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+
+    def test_init_in_a_git_subfolder_sets_up_the_top_folder(self):
+        os.mkdir(os.path.join(self.dir, ".git"))
+        sub = self.folder("src", "deep")
+        out = self.init(cwd=sub)
+        self.assertEqual(out.splitlines()[0], f"Kanvas {kanvas.VERSION} in {self.dir}, the top folder of this git repository")
+        self.assertIn("created   kanvas.json", out)
+        self.assertTrue(os.path.isfile(os.path.join(self.dir, "kanvas.json")))
+        self.assertTrue(os.path.isfile(os.path.join(self.dir, ".agents", "skills", "kanvas", "SKILL.md")))
+        self.assertEqual(os.listdir(sub), [])
+
+    def test_a_git_file_marks_the_top_folder_too(self):
+        """Worktrees and submodules have a .git file."""
+        with open(os.path.join(self.dir, ".git"), "w", encoding="utf-8") as f:
+            f.write("gitdir: /elsewhere/.git/worktrees/project\n")
+        out = self.init(cwd=self.folder("src"))
+        self.assertIn("the top folder of this git repository", out.splitlines()[0])
+        self.assertTrue(os.path.isfile(os.path.join(self.dir, "kanvas.json")))
+
+    def test_init_dot_keeps_the_current_folder(self):
+        os.mkdir(os.path.join(self.dir, ".git"))
+        sub = self.folder("docs")
+        out = self.init(".", cwd=sub)
+        self.assertEqual(out.splitlines()[0], f"Kanvas {kanvas.VERSION} in {sub}")
+        self.assertTrue(os.path.isfile(os.path.join(sub, "kanvas.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "kanvas.json")))
+
+    def test_an_existing_board_wins_over_the_git_top_folder(self):
+        os.mkdir(os.path.join(self.dir, ".git"))
+        app = self.folder("app")
+        write_board(os.path.join(app, "kanvas.json"), kanvas.new_board("app"))
+        out = self.init(cwd=self.folder("app", "src"))
+        self.assertEqual(out.splitlines()[0], f"Kanvas {kanvas.VERSION} in {app}, the folder of the existing kanvas.json")
+        self.assertIn("kept      kanvas.json", out)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "kanvas.json")))
+        self.assertEqual(os.listdir(os.path.join(app, "src")), [])
+
+    def test_outside_git_init_sets_up_the_current_folder(self):
+        if kanvas.find_git_top(self.dir) or kanvas.find_board(self.dir):
+            self.skipTest("the temporary folder is inside a git repository or below a kanvas.json")
+        sub = self.folder("notes")
+        out = self.init(cwd=sub)
+        self.assertEqual(out.splitlines()[0], f"Kanvas {kanvas.VERSION} in {sub}")
+        self.assertTrue(os.path.isfile(os.path.join(sub, "kanvas.json")))
+        self.assertEqual(os.listdir(self.dir), ["notes"])
+
+    def test_init_creates_agents_md_when_missing(self):
+        out = self.init()
+        self.assertIn("created   AGENTS.md", out)
+        self.assertNotIn("add this line", out)
+        with open(os.path.join(self.dir, "AGENTS.md"), "rb") as f:
+            self.assertEqual(f.read(), b"# Agent instructions\n\n"
+                                       b"Plan and track work on the Kanvas board; follow .agents/skills/kanvas/SKILL.md.\n")
+        out = self.init()
+        self.assertNotIn("AGENTS.md", out)
+
+    def test_existing_agent_instructions_stay_byte_identical(self):
+        mine = "# Mine\r\nNo newline at the end é".encode("utf-8")
+        for name, creates in (("AGENTS.md", False), ("agents.md", False), ("CLAUDE.md", True)):
+            with self.subTest(name=name):
+                project = tempfile.mkdtemp(dir=self.dir)
+                with open(os.path.join(project, name), "wb") as f:
+                    f.write(mine)
+                out = self.init(project)
+                with open(os.path.join(project, name), "rb") as f:
+                    self.assertEqual(f.read(), mine)
+                self.assertEqual("created   AGENTS.md" in out, creates)
+                self.assertEqual("add this line to AGENTS.md" in out, not creates)
+                docs = sorted(f for f in os.listdir(project) if f.lower().endswith(".md"))
+                self.assertEqual(docs, sorted([name, "AGENTS.md"] if creates else [name]))
 
     def test_skill_has_frontmatter(self):
         with open(os.path.join(ROOT, "skill", "SKILL.md"), encoding="utf-8") as f:
@@ -849,6 +929,95 @@ class ServerTests(TempBoard):
         self.assertEqual(status, 200)
         text = self.raw().decode("utf-8")
         self.assertEqual(text, kanvas.dumps(kanvas.parse_board(text)))
+
+
+class Terminal(io.StringIO):
+    def isatty(self):
+        return True
+
+
+class ServeWithoutBoardTests(unittest.TestCase):
+    """serve offers to create a missing board, and only asks a person at the terminal."""
+
+    def setUp(self):
+        self.dir = os.path.realpath(tempfile.mkdtemp(prefix="kanvas-serve-"))
+        self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
+        self.addCleanup(os.chdir, os.getcwd())
+        if kanvas.find_board(self.dir):
+            self.skipTest("a kanvas.json above the temporary folder would be served")
+
+    def project(self):
+        """A fresh git project, with the current folder in its src/ subfolder."""
+        top = tempfile.mkdtemp(dir=self.dir)
+        os.mkdir(os.path.join(top, ".git"))
+        os.mkdir(os.path.join(top, "src"))
+        os.chdir(os.path.join(top, "src"))
+        return top
+
+    def serve(self, answer, *args, env=None):
+        """Runs `serve` at a pretend terminal, answering its question with `answer` (text or an exception)."""
+        self.server = mock.Mock(server_address=("127.0.0.1", 8765), check_host=True)
+        stdin, stdout, stderr = mock.Mock(), Terminal(), io.StringIO()
+        stdin.isatty.return_value = True
+        reply = {"return_value": answer} if isinstance(answer, str) else {"side_effect": answer}
+        with mock.patch.dict(os.environ), mock.patch("builtins.input", **reply) as self.ask, \
+                mock.patch.object(kanvas, "start_server", return_value=self.server) as self.start, \
+                mock.patch.object(sys, "stdin", stdin), mock.patch.object(sys, "stdout", stdout), \
+                mock.patch.object(sys, "stderr", stderr):
+            os.environ.pop("KANVAS_BOARD", None)
+            os.environ.update(env or {})
+            code = kanvas.main(["serve", "--no-open", *args])
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_without_a_terminal_serve_names_init_and_creates_nothing(self):
+        top = self.project()
+        env = dict(os.environ)
+        env.pop("KANVAS_BOARD", None)
+        proc = subprocess.run([sys.executable, SCRIPT, "serve", "--no-open", "--port", "0"],
+                              cwd=os.path.join(top, "src"), input=b"", capture_output=True, env=env, timeout=60)
+        err = proc.stderr.decode("utf-8")
+        self.assertEqual(proc.returncode, 1, err)
+        self.assertIn("No kanvas.json found", err)
+        self.assertIn(" init", err)
+        self.assertNotIn("[Y/n]", proc.stdout.decode("utf-8"))
+        self.assertEqual(sorted(os.listdir(top)), [".git", "src"])
+        self.assertEqual(os.listdir(os.path.join(top, "src")), [])
+
+    def test_at_a_terminal_yes_sets_up_the_project_and_serves_it(self):
+        for answer in ("", "y", "YES"):
+            with self.subTest(answer=answer):
+                top = self.project()
+                code, out, err = self.serve(answer)
+                self.assertEqual(code, 0, err)
+                self.ask.assert_called_once_with(f"No kanvas.json here. Create one in {top}? [Y/n] ")
+                board = os.path.join(top, "kanvas.json")
+                self.assertTrue(os.path.isfile(board))
+                self.assertTrue(os.path.isfile(os.path.join(top, ".agents", "skills", "kanvas", "SKILL.md")))
+                self.assertIn(f"Kanvas {kanvas.VERSION} in {top}, the top folder of this git repository", out)
+                self.assertIn("created   kanvas.json", out)
+                self.assertIn(f"Kanvas board: {board}", out)
+                self.assertEqual(self.start.call_args[0][0], board)
+                self.server.serve_forever.assert_called_once_with()
+
+    def test_at_a_terminal_no_creates_nothing(self):
+        for answer in ("n", "No", EOFError, KeyboardInterrupt):
+            with self.subTest(answer=answer):
+                top = self.project()
+                code, out, err = self.serve(answer)
+                self.assertEqual(code, 1, out)
+                self.assertIn("No kanvas.json found", err)
+                self.assertEqual(sorted(os.listdir(top)), [".git", "src"])
+                self.start.assert_not_called()
+
+    def test_a_missing_board_given_by_name_is_not_offered(self):
+        self.project()
+        for args, env in ((["--board", "missing.json"], None), ([], {"KANVAS_BOARD": "missing.json"})):
+            with self.subTest(args=args, env=env):
+                code, _, err = self.serve("y", *args, env=env)
+                self.assertEqual(code, 1)
+                self.assertIn("Board not found", err)
+                self.ask.assert_not_called()
+                self.assertFalse(os.path.exists("missing.json"))
 
 
 class LayoutTests(unittest.TestCase):
