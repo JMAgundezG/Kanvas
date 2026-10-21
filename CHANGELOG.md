@@ -31,6 +31,7 @@ Kanvas runs without Obsidian. The board is a JSON file, agents use a new CLI, an
 - The browser page suggests `kanvas serve`, or the project's copy when the command is not installed, and the empty board asks you to have your agent interview you and plan the project
 - `status` and `serve` say when a project's agent copy is out of date and suggest `kanvas init`, or `uv tool upgrade kanvas-board` when the installed `kanvas` is the older one
 - Text options read UTF-8 from `--stdin` or `--file` on every platform, fixing multi-line and non-ASCII text on Windows (#20, #23)
+- The skill asks agents to sign notes with their tool's name (`claude-code`, `cursor`, `codex`, ...) so the board shows who did what
 - Text arguments may follow options, as in `note DV-01 --as claude "..."`
 - Add `check`, `depend`, `add-group`, `import` (migrates Obsidian `.canvas` boards) and `export`
 - Writes are locked and atomic, so several agents and the browser can work at once; a board in a folder you cannot write to fails with a clear message
