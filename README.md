@@ -126,7 +126,7 @@ Every task moves through five states. A to-do task whose dependencies are unfini
 | Review | pink | The agent finishes it, with a summary of what it did |
 | Done | green | You accept it, or send it back with feedback |
 
-Agents may propose tasks and groups, start ready tasks, finish or pause tasks in progress, add notes and add dependencies. Everything else belongs to you: approving, editing, deleting, marking done. Feedback you leave when sending a task back becomes a note the agent reads when it picks the task up again.
+Agents may propose tasks and groups, start ready tasks, finish or pause tasks in progress, add notes and add dependencies. Until you approve a proposal, they may also revise, withdraw or rewire it, so you can reshape a plan together in the conversation and the board follows. Everything else belongs to you: approving, changing approved tasks, marking done. Feedback you leave when sending a task back becomes a note the agent reads when it picks the task up again.
 
 ## The board
 
@@ -169,6 +169,9 @@ You type `kanvas <command>`; `kanvas -h` lists the commands and `kanvas <command
 | `add-group NAME [--prefix XX]` | Create a group |
 | `batch` | Propose many groups and tasks from JSON on stdin |
 | `depend ID ON [ON ...]` | Add dependencies |
+| `edit ID [--title T] [--group G] [--desc D]` | Revise a proposal that is not approved yet |
+| `withdraw ID [ID ...]` | Delete proposals that are not approved yet |
+| `undepend ID ON [ON ...]` | Remove dependencies from a proposal |
 | `check` | Validate the board; exit code 1 on errors |
 | `serve [--port N] [--host H]` | Open the board in the browser; in a project without a board, offer to create one first |
 | `init [DIR]` | Set up Kanvas in a project, or refresh the agents' copy after an update |

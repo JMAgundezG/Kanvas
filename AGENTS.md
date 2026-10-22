@@ -19,7 +19,7 @@ Kanvas is a task board shared by humans and AI agents. This file is for agents a
 
 - **Zero dependencies.** `kanvas.py` uses only the standard library and must run on Python 3.8 on Linux, macOS and Windows. `kanvas.html` loads nothing from the network.
 - **One format, two writers.** `kanvas.py` (`canonical`, `dumps`) and `kanvas.html` (`canonical`, `serialize`) must produce byte-identical files. Change both together; `test_html_serializer_matches_python` checks it.
-- **The CLI enforces the agent workflow.** Agents can propose, start, finish (with a summary), pause, note and add dependencies. Approving, editing, deleting and marking done stay human-only, in the browser.
+- **The CLI enforces the agent workflow.** Agents can propose, start, finish (with a summary), pause, note and add dependencies, and they can edit, withdraw and rewire proposals until a human approves them. Approving, changing approved tasks and marking done stay human-only, in the browser. Proposals under YOLO count as approved.
 - **Writes are safe.** Every CLI write goes through `mutate()`: lock, load, change, atomic replace. Failed commands leave the file untouched. Browser saves are compare-and-swap through the server (`If-Match`, 409 with the current board, the change is replayed).
 - **Never edit a user's existing files.** `init` only creates files that do not exist yet, apart from the skill copies it owns.
 

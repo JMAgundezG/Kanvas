@@ -1141,6 +1141,100 @@ def cmd_depend(args):
     print(f"{t['id']} now depends on {', '.join(added)}" + (" (blocked until they are done)" if vs == "blocked" else ""))
 
 
+def find_proposal(board, ref, cover):
+    """A task agents may still change: proposed, and not approved by YOLO."""
+    t = find_task(board, ref)
+    if t["state"] != "proposed":
+        raise KanvasError(f"{t['id']} is approved ({t['state']}); only a human can change it now, in the board")
+    if t["id"].upper() in cover:
+        raise KanvasError(f"{t['id']} is under YOLO, which counts as approval; only a human can change it now")
+    return t
+
+
+def cmd_edit(args):
+    path = board_path(args)
+    has_desc = args.new_desc is not None or args.stdin or bool(args.file)
+    desc = read_input(args.new_desc, args.stdin, args.file, "description") if has_desc else None
+    note = read_input(args.message, what="note") if args.message else ""
+    if args.title is None and args.group is None and not has_desc:
+        raise KanvasError("Nothing to change: give --title, --group, or a description (--desc, --stdin or --file)")
+
+    def op(board):
+        t = find_proposal(board, args.id, yolo_cover(board))
+        changed = []
+        if args.title is not None:
+            title = " ".join(args.title.split())
+            if not title:
+                raise KanvasError("Task title is empty")
+            if title != t["title"]:
+                t["title"] = title
+                changed.append("title")
+        if args.group is not None:
+            gid = None if args.group in ("-", "") else find_group(board, args.group)["id"]
+            if gid != t.get("group"):
+                t["group"] = gid
+                changed.append("group")
+        if desc is not None and desc != t.get("desc", ""):
+            t["desc"] = desc
+            changed.append("description")
+        if note:
+            add_note(t, note, actor(args))
+        return t, changed
+
+    t, changed = mutate(path, op)
+    what = " and ".join([", ".join(changed[:-1]), changed[-1]] if len(changed) > 1 else changed) or "nothing (it already read that way)"
+    print(f"Revised {t['id']}: {what}{', with a note' if note else ''}")
+
+
+def cmd_withdraw(args):
+    path = board_path(args)
+
+    def op(board):
+        cover = yolo_cover(board)
+        gone = []
+        for ref in args.ids:
+            t = find_proposal(board, ref, cover)
+            if t["id"] not in gone:
+                gone.append(t["id"])
+        keys = {g.upper() for g in gone}
+        for t in board["tasks"]:
+            if t["id"].upper() in keys:
+                continue
+            waiting = [d for d in t.get("deps", []) if d.upper() in keys]
+            if waiting and t["state"] != "proposed":
+                raise KanvasError(f"{t['id']} is approved and depends on {', '.join(waiting)}; "
+                                  "ask the human to remove that dependency first")
+        rewired = []
+        for t in board["tasks"]:
+            kept = [d for d in t.get("deps", []) if d.upper() not in keys]
+            if len(kept) != len(t.get("deps", [])):
+                t["deps"] = kept
+                rewired.append(t["id"])
+        board["tasks"] = [t for t in board["tasks"] if t["id"].upper() not in keys]
+        rewired = [r for r in rewired if r.upper() not in keys]
+        return gone, rewired
+
+    gone, rewired = mutate(path, op)
+    print(f"Withdrew {', '.join(gone)}" + (f"; {', '.join(rewired)} no longer depend on them" if rewired else ""))
+
+
+def cmd_undepend(args):
+    path = board_path(args)
+
+    def op(board):
+        t = find_proposal(board, args.id, yolo_cover(board))
+        keys = {str(r).strip().upper() for r in args.on}
+        removed = [d for d in t["deps"] if d.upper() in keys]
+        missing = [r for r in args.on if str(r).strip().upper() not in {d.upper() for d in t["deps"]}]
+        if missing:
+            raise KanvasError(f"{t['id']} does not depend on {', '.join(missing)}")
+        t["deps"] = [d for d in t["deps"] if d.upper() not in keys]
+        return t, removed
+
+    t, removed = mutate(path, op)
+    print(f"{t['id']} no longer depends on {', '.join(removed)}")
+
+
 # ---------------------------------------------------------------------------
 # Setup, migration and sharing
 # ---------------------------------------------------------------------------
@@ -1572,7 +1666,8 @@ def cmd_serve(args):
 
 EPILOG = """\
 workflow:  proposed -> todo -> doing -> review -> done
-  Agents propose, start, pause, finish, note and add dependencies.
+  Agents propose, start, pause, finish, note and add dependencies, and may
+  edit, withdraw or rewire proposals until a human approves them.
   Humans approve proposals and mark work done in the board (`serve`).
   A todo task with unfinished dependencies shows as blocked.
   YOLO on a task: it and everything it depends on need no approval;
@@ -1650,6 +1745,18 @@ def build_parser():
     p = add("batch", cmd_batch, "propose many groups and tasks from JSON (stdin or --file)")
     p.add_argument("--file", metavar="PATH", help="read the JSON from a file")
     p = add("depend", cmd_depend, "make a task depend on others: depend DV-03 DV-01 DV-02")
+    p.add_argument("id")
+    p.add_argument("on", nargs="+", metavar="ON")
+    p = add("edit", cmd_edit, "revise a proposal before it is approved")
+    p.add_argument("id")
+    p.add_argument("--title")
+    p.add_argument("--group", help="group name or prefix, or - for none")
+    p.add_argument("--desc", dest="new_desc", metavar="DESC", help="new description")
+    p.add_argument("-m", "--message", help="optional note on why")
+    text_sources(p, "description")
+    p = add("withdraw", cmd_withdraw, "delete proposals that are not approved yet")
+    p.add_argument("ids", nargs="+", metavar="ID")
+    p = add("undepend", cmd_undepend, "remove dependencies from a proposal: undepend DV-03 DV-01")
     p.add_argument("id")
     p.add_argument("on", nargs="+", metavar="ON")
 

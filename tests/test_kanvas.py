@@ -504,6 +504,75 @@ class ProposalTests(TempBoard):
         self.run_cli("check")
 
 
+class RevisionTests(TempBoard):
+    """Agents may rework proposals until a human approves them."""
+
+    def initial_board(self):
+        board = super().initial_board()
+        board["groups"].append({"id": "QA", "name": "Quality"})
+        board["tasks"] += [task("DV-05", "proposed", "DV", ["DV-04"]), task("DV-06", "proposed", "DV", ["DV-04", "DV-02"])]
+        return board
+
+    def test_edit_revises_a_proposal(self):
+        _, out, _ = self.run_cli("edit", "DV-04", "--title", "  Better   title ", "--group", "QA",
+                                 "--stdin", "-m", "Narrowed after the discussion", "--as", "codex",
+                                 stdin="Finished when it works.\r\n".encode("utf-8"))
+        self.assertIn("Revised DV-04: title, group and description, with a note", out)
+        t = self.get("DV-04")
+        self.assertEqual((t["id"], t["title"], t["group"], t["desc"], t["state"]),
+                         ("DV-04", "Better title", "QA", "Finished when it works.", "proposed"))
+        self.assertEqual((t["notes"][-1]["by"], t["notes"][-1]["text"]), ("codex", "Narrowed after the discussion"))
+        self.run_cli("edit", "DV-04", "--desc", "", "--group", "-")
+        self.assertEqual((self.get("DV-04")["desc"], self.get("DV-04")["group"]), ("", None))
+        _, out, _ = self.run_cli("edit", "DV-04", "--title", "Better title")
+        self.assertIn("nothing", out)
+        self.run_cli("check")
+
+    def test_edit_refuses_approved_tasks_and_bad_input(self):
+        before = self.raw()
+        self.assertIn("only a human can change it", self.fails("edit", "DV-02", "--title", "x"))
+        self.assertIn("Nothing to change", self.fails("edit", "DV-04"))
+        self.assertIn("not found", self.fails("edit", "DV-04", "--group", "Nope"))
+        self.assertIn("title is empty", self.fails("edit", "DV-04", "--title", "  "))
+        self.assertIn("unrecognized arguments", self.fails("edit", "DV-04", "stray text"))
+        self.assertEqual(self.raw(), before)
+
+    def test_withdraw_removes_proposals_and_their_links(self):
+        _, out, _ = self.run_cli("withdraw", "DV-04", "dv-05")
+        self.assertIn("Withdrew DV-04, DV-05; DV-06 no longer depend on them", out)
+        ids = [t["id"] for t in self.board()["tasks"]]
+        self.assertNotIn("DV-04", ids)
+        self.assertNotIn("DV-05", ids)
+        self.assertEqual(self.get("DV-06")["deps"], ["DV-02"])
+        self.run_cli("check")
+
+    def test_withdraw_keeps_what_approved_tasks_depend_on(self):
+        self.run_cli("depend", "DV-03", "DV-06")
+        before = self.raw()
+        self.assertIn("DV-03 is approved and depends on DV-06", self.fails("withdraw", "DV-06"))
+        self.assertIn("only a human can change it", self.fails("withdraw", "DV-04", "DV-02"))
+        self.assertEqual(self.raw(), before)
+
+    def test_undepend_rewires_a_proposal(self):
+        _, out, _ = self.run_cli("undepend", "DV-06", "dv-04")
+        self.assertIn("DV-06 no longer depends on DV-04", out)
+        self.assertEqual(self.get("DV-06")["deps"], ["DV-02"])
+        before = self.raw()
+        self.assertIn("does not depend on DV-05", self.fails("undepend", "DV-06", "DV-05"))
+        self.assertIn("only a human can change it", self.fails("undepend", "DV-03", "DV-02"))
+        self.assertEqual(self.raw(), before)
+
+    def test_proposals_under_yolo_count_as_approved(self):
+        board = self.board()
+        kanvas.find_task(board, "DV-06")["yolo"] = True
+        write_board(self.path, board)
+        before = self.raw()
+        for args in (("edit", "DV-04", "--title", "x"), ("withdraw", "DV-04"), ("undepend", "DV-06", "DV-04")):
+            self.assertIn("under YOLO", self.fails(*args))
+        self.assertEqual(self.raw(), before)
+        self.run_cli("edit", "DV-05", "--title", "Outside the chain")
+
+
 class InitTests(unittest.TestCase):
     def setUp(self):
         self.dir = os.path.realpath(tempfile.mkdtemp(prefix="kanvas-init-"))

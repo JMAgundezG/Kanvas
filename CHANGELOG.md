@@ -31,6 +31,7 @@ Kanvas runs without Obsidian. The board is a JSON file, agents use a new CLI, an
 - The browser page suggests `kanvas serve`, or the project's copy when the command is not installed, and the empty board asks you to have your agent interview you and plan the project
 - `status` and `serve` say when a project's agent copy is out of date and suggest `kanvas init`, or `uv tool upgrade kanvas-board` when the installed `kanvas` is the older one
 - Text options read UTF-8 from `--stdin` or `--file` on every platform, fixing multi-line and non-ASCII text on Windows (#20, #23)
+- Agents can rework proposals until you approve them: `edit` changes the title, description or group, `withdraw` deletes proposals and `undepend` removes dependencies. Approved tasks and proposals under YOLO stay yours to change, and the board shows a notice when an agent revises or withdraws a proposal
 - The skill's planning guidance fits any kind of work: agents first look at what the project already holds and what you want from the board, and size tasks to how you want to follow them, from large milestones to small steps
 - The skill asks agents to sign notes with their tool's name (`claude-code`, `cursor`, `codex`, ...) so the board shows who did what
 - Text arguments may follow options, as in `note DV-01 --as claude "..."`

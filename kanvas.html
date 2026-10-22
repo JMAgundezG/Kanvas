@@ -1660,20 +1660,28 @@ function applyRemote(fresh) {
   confirmed = fresh;
   setBoard(clone(fresh));
   const changed = board.tasks.filter((t) => !sameJson(before.get(key(t.id)), t)).map((t) => t.id);
-  if (ui.selected && !get(ui.selected)) { toast(`${ui.selected} was removed`); ui.selected = null; }
+  const withdrawn = [...before.values()].filter((t) => t.state === "proposed" && !get(t.id));
+  if (ui.selected && !get(ui.selected)) {
+    if (!withdrawn.some((t) => same(t.id, ui.selected))) toast(`${ui.selected} was removed`);
+    ui.selected = null;
+  }
   render();
   flash(changed);
-  announce(board.tasks.filter((t) => !before.has(key(t.id)) || before.get(key(t.id)).state !== t.state).map((t) => [t, before.get(key(t.id))]));
+  announce(board.tasks.filter((t) => { const old = before.get(key(t.id)); return !old || old.state !== t.state || revised(old, t); })
+    .map((t) => [t, before.get(key(t.id))]), withdrawn);
 }
+
+const revised = (old, t) => old.state === "proposed" && t.state === "proposed" && ["title", "desc", "group", "deps"].some((k) => !sameJson(old[k], t[k]));
 
 // What agents did since the last poll, as toasts. The author is only known when the move added a note.
 const ACTIVITY = { proposed: "proposed", doing: "started", review: "finished", done: "finished", todo: "paused" };
-function announce(moves) {
+function announce(moves, withdrawn) {
   const shown = moves.filter(([t, old]) => ACTIVITY[t.state] && !(t.state === "todo" && (!old || old.state !== "doing")));
-  if (shown.length > 3) { toast(`${shown.length} tasks changed`); return; }
+  if (shown.length + withdrawn.length > 3) { toast(`${shown.length + withdrawn.length} tasks changed`); return; }
+  for (const t of withdrawn) toast([h("span", { class: "cid" }, t.id), ` ${t.title} `, "was withdrawn"], "activity", 4200);
   for (const [t, old] of shown) {
     const last = t.notes[t.notes.length - 1], by = last && t.notes.length > (old ? old.notes.length : 0) ? last.by : null;
-    const verb = !old && t.state === "proposed" ? "proposed" : ACTIVITY[t.state];
+    const verb = old && revised(old, t) ? "revised" : !old && t.state === "proposed" ? "proposed" : ACTIVITY[t.state];
     const what = [h("span", { class: "cid" }, t.id), ` ${t.title} `, h("span", { class: `badge s-${vstate(t)}` }, LABEL[vstate(t)])];
     toast(by ? [agentMark(by), h("b", {}, by), ` ${verb} `, what] : [what.slice(0, 2), `was ${verb} `, what[2]], "activity", 4200);
   }

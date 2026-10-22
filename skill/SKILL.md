@@ -29,7 +29,7 @@ proposed -> todo -> doing -> review -> done
 | review | you (`finish`, with a summary) | Waiting for the human to check it |
 | done | the human | Accepted |
 
-You may propose tasks and groups, start ready tasks, finish or pause tasks in progress, add notes and add dependencies. Approving proposals, marking tasks done, editing and deleting belong to the human; ask for them in the conversation.
+You may propose tasks and groups, start ready tasks, finish or pause tasks in progress, add notes and add dependencies. Until the human approves a proposal, you may also revise it (`edit`), withdraw it (`withdraw`) or remove its dependencies (`undepend`), so rework proposals freely while you discuss a plan. Approving proposals, changing approved tasks and marking tasks done belong to the human; ask for them in the conversation.
 
 ### YOLO
 
@@ -90,6 +90,9 @@ Give each task a `desc` that says what finished means, since the human reviews a
 | `add-group NAME [--prefix XX]` | New group |
 | `batch` | Many groups and proposals from JSON on stdin |
 | `depend ID ON [ON ...]` | ID waits for the others (cycles are rejected) |
+| `edit ID [--title T] [--group G] [--desc D] [-m NOTE]` | Revise a proposal; `--stdin` or `--file` for a long description |
+| `withdraw ID [ID ...]` | Delete proposals |
+| `undepend ID ON [ON ...]` | Remove dependencies from a proposal |
 | `check` | Validate the board |
 
 Notes record your name, so the human can tell who did what. Sign with the name of your tool: `claude-code`, `cursor`, `codex`, `gemini`, `copilot`, `opencode`, or another short name for it. Pass `--as cursor` to each command, or set `KANVAS_AGENT=cursor` once if your shell keeps environment variables between commands. When several agents of one tool share the board, add what each one does, as in `cursor-docs`. Unsigned notes show as `agent`.
