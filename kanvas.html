@@ -307,6 +307,10 @@ a.tref { font: 600 12px var(--mono); text-decoration: none; padding: 0 4px; bord
 .md hr { border: 0; border-top: 1px solid var(--border); }
 .desc-edit { display: flex; flex-direction: column; gap: 8px; }
 .desc-edit textarea { min-height: 150px; }
+.desc-clash { padding: 8px 10px; border-left: 3px solid var(--doing); border-radius: 4px; background: color-mix(in srgb, var(--doing) 9%, transparent); font-size: 12.5px; }
+.desc-clash p { margin: 0 0 4px; }
+.desc-clash summary { cursor: pointer; color: var(--muted); }
+.desc-clash .md { margin-top: 6px; }
 .row-end { display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
 .row-end .hint { margin-right: auto; font-size: 12px; color: var(--faint); }
 .notes { display: flex; flex-direction: column; gap: 12px; }
@@ -1476,7 +1480,8 @@ const savePrefs = () => { try { localStorage.setItem("kanvas:prefs", JSON.string
 
 const ui = { selected: null, search: "", states: new Set(), hover: null, link: null, editingDesc: false, focusDesc: false, editingNote: null, focusNote: false, panelStale: false, editingTitle: false };
 // Unsaved text in the panel survives re-renders caused by agent changes.
-const drafts = { desc: null, note: new Map(), noteEdit: null };
+// descBase is the description as it was when editing began, to notice an agent changing it meanwhile.
+const drafts = { desc: null, descBase: null, note: new Map(), noteEdit: null };
 const view = { x: 40, y: 30, k: 1 };
 let fitted = false;
 
@@ -1612,7 +1617,7 @@ async function open(s) {
   render();
 }
 
-async function commit(fn, { record = true } = {}) {
+async function commit(fn, { record = true, onFail = null } = {}) {
   if (!store || store.readOnly) { toast("This snapshot is read-only"); return false; }
   let draft;
   const before = clone(board);
@@ -1632,6 +1637,7 @@ async function commit(fn, { record = true } = {}) {
     } catch (e) {
       toast(`Not saved: ${e.message}`, "error");
       if (entry) forget(entry);
+      if (onFail) onFail(e);
       try { confirmed = await store.load(); } catch (err) { setSync("bad", err.message); }
     } finally {
       pending--;
@@ -1796,13 +1802,30 @@ function mustFind(b, id) {
 // Times are taken when the change is made, so a save that replays it writes what the page showed.
 const addNote = (t, text, at) => t.notes.push({ at, by: "human", text });
 
+// What the human saw of a task when they acted on it. Agents may revise proposals until they are
+// approved, so approving checks that the proposal still reads the same.
+const seenOf = (t) => ({ id: t.id, state: t.state, title: t.title, desc: t.desc, group: t.group, deps: [...t.deps] });
+const revisedSince = (t, seen) => ["title", "desc", "group", "deps"].some((k) => !sameJson(t[k], seen[k]));
+const FIELD = { title: "the title", desc: "the description", group: "the group" };
+
 const ops = {
   title: (text) => (b) => { b.title = text; },
-  set: (id, patch) => (b) => { Object.assign(mustFind(b, id), patch); },
-  // `from` is the state the human saw, so a replay never undoes a move an agent made meanwhile.
-  state: (id, from, state, text, at = nowIso()) => (b) => {
+  // `was` holds the values the human started from, so a replay never overwrites a field an agent changed meanwhile.
+  set: (id, patch, was) => (b) => {
     const t = mustFind(b, id);
+    for (const k of Object.keys(patch)) {
+      if (was && k in was && !sameJson(t[k], was[k]) && !sameJson(t[k], patch[k])) throw new Error(`${FIELD[k] || k} of ${t.id} changed meanwhile`);
+    }
+    Object.assign(t, patch);
+  },
+  // `seen` is the task as the human saw it, so a replay never undoes a move an agent made meanwhile,
+  // nor approves a proposal an agent rewrote.
+  state: (id, seen, state, text, at = nowIso()) => (b) => {
+    const t = mustFind(b, id), from = seen.state;
     if (t.state !== from && t.state !== state) throw new Error(`${t.id} is in ${LABEL[t.state] || t.state} now, not ${LABEL[from] || from}`);
+    if (from === "proposed" && t.state === "proposed" && state !== "proposed" && revisedSince(t, seen)) {
+      throw new Error(`${t.id} was revised since you opened it; read the new version first`);
+    }
     t.state = state;
     if (text) addNote(t, text, at);
   },
@@ -1843,7 +1866,13 @@ const ops = {
     t.deps.push(d.id);
   },
   removeDep: (id, dep) => (b) => { const t = mustFind(b, id); t.deps = t.deps.filter((x) => !same(x, dep)); },
-  approve: (ids) => (b) => { for (const t of b.tasks) if (t.state === "proposed" && ids.includes(t.id)) t.state = "todo"; },
+  // Withdrawn proposals are skipped; a revised one stops the whole approval, so the human reads it first.
+  approve: (seen) => (b) => {
+    const now = seen.map((s) => [b.tasks.find((t) => same(t.id, s.id)), s]).filter(([t]) => t && t.state === "proposed");
+    const revised = now.filter(([t, s]) => revisedSince(t, s)).map(([t]) => t.id);
+    if (revised.length) throw new Error(`${revised.join(", ")} ${revised.length > 1 ? "were" : "was"} revised since you looked; read the new version first`);
+    for (const [t] of now) t.state = "todo";
+  },
   yolo: (id, on) => (b) => {
     const t = mustFind(b, id);
     if (!on) { delete t.yolo; return; }
@@ -2446,7 +2475,7 @@ function renderKanban() {
     const items = tasks.filter((t) => vstate(t) === s);
     const head = h("div", { class: "col-head" }, h("span", { class: "dot" }), LABEL[s], h("span", { class: "count" }, items.length));
     if (s === "proposed" && items.length && !store.readOnly) {
-      head.append(h("button", { title: "Approve every proposal in this column", onclick: () => approveMany(items.map((t) => t.id)) }, icon("check"), "Approve all"));
+      head.append(h("button", { title: "Approve every proposal in this column", onclick: () => approveMany(items) }, icon("check"), "Approve all"));
     }
     const body = h("div", { class: "col-body" }, items.length ? items.map(kanbanCard) : h("div", { class: "col-empty" }, s === "blocked" ? "Nothing is blocked" : "Empty"));
     const col = h("div", { class: `col s-${s}`, "data-state": s }, head, body);
@@ -2458,7 +2487,7 @@ function renderKanban() {
         col.classList.remove("drop");
         const id = e.dataTransfer.getData("text/kanvas-id"), t = get(id);
         const target = s === "blocked" ? "todo" : s;
-        if (t && t.state !== target) commit(ops.state(t.id, t.state, target));
+        if (t && t.state !== target) commit(ops.state(t.id, seenOf(t), target));
       });
     }
     return col;
@@ -2485,7 +2514,7 @@ function select(id) {
   const t = id ? get(id) : null;
   ui.selected = t ? t.id : null;
   ui.editingDesc = false;
-  drafts.desc = null;
+  drafts.desc = drafts.descBase = null;
   ui.editingNote = null;
   drafts.noteEdit = null;
   history.replaceState(null, "", ui.selected ? `#${encodeURIComponent(ui.selected)}` : location.pathname + location.search);
@@ -2503,7 +2532,7 @@ function depRow(d, onRemove) {
 
 // `asks` marks moves that open a dialog first.
 function stateMoves(t) {
-  const to = (state) => () => commit(ops.state(t.id, t.state, state));
+  const to = (state) => () => commit(ops.state(t.id, seenOf(t), state));
   switch (vstate(t)) {
     case "proposed": return [{ label: "Approve", icon: "check", run: to("todo"), to: "todo", primary: true }, { label: "Reject", icon: "trash", run: () => removeTask(t), danger: true, asks: true }];
     case "todo": return [{ label: "Start", icon: "play", run: to("doing"), to: "doing", primary: true }];
@@ -2610,7 +2639,7 @@ function fillPanel(panel, t) {
   const title = h("textarea", { class: "p-title", rows: 1, value: t.title, "aria-label": "Title", readonly: ro, spellcheck: "false" });
   title.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); focusPanel(); } if (e.key === "Escape") { title.value = t.title; focusPanel(); } });
   title.addEventListener("input", () => autosize(title));
-  title.addEventListener("change", () => { const v = title.value.replace(/\s+/g, " ").trim(); if (v && v !== t.title) commit(ops.set(t.id, { title: v })); else title.value = t.title; });
+  title.addEventListener("change", () => { const v = title.value.replace(/\s+/g, " ").trim(); if (v && v !== t.title) commit(ops.set(t.id, { title: v }, { title: t.title })); else title.value = t.title; });
 
   const g = board.groups.find((x) => x.id === t.group);
   const gColor = g ? GROUP_COLORS[board.groups.indexOf(g) % GROUP_COLORS.length] : "var(--border-strong)";
@@ -2627,13 +2656,24 @@ function fillPanel(panel, t) {
 
   let desc;
   if (ui.editingDesc && !ro) {
+    const base = drafts.descBase ?? t.desc, clash = base !== t.desc;
     const ta = h("textarea", { value: drafts.desc ?? t.desc, placeholder: "Describe the task. Markdown works.", "aria-label": "Description" });
-    const close = () => { ui.editingDesc = false; drafts.desc = null; ta.blur(); };
-    const save = () => { const v = ta.value.trim(); close(); if (v !== t.desc) commit(ops.set(t.id, { desc: v })); else renderPanel(); };
+    const close = () => { ui.editingDesc = false; drafts.desc = drafts.descBase = null; ta.blur(); };
+    const save = () => {
+      const v = ta.value.trim(), now = get(t.id) || t;
+      // The panel does not refresh while the editor has focus, so an agent's edit may not be on screen yet.
+      if (now.desc !== base && !clash) { drafts.desc = ta.value; drafts.descBase = base; ta.blur(); renderPanel(); return; }
+      close();
+      if (v === now.desc) { renderPanel(); return; }
+      commit(ops.set(t.id, { desc: v }, { desc: now.desc }), { onFail: () => { ui.editingDesc = true; drafts.desc = v; drafts.descBase = now.desc; } });
+    };
     const cancel = () => { close(); renderPanel(); };
     ta.addEventListener("input", () => { drafts.desc = ta.value; });
     ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { save(); focusPanel(ta); } if (e.key === "Escape") { e.stopPropagation(); cancel(); focusPanel(); } });
-    desc = h("div", { class: "desc-edit" }, ta, h("div", { class: "row-end" }, h("span", { class: "hint" }, "Ctrl+Enter to save"), h("button", { onclick: cancel }, "Cancel"), h("button", { class: "primary", onclick: save }, "Save")));
+    desc = h("div", { class: "desc-edit" }, clash ? h("div", { class: "desc-clash", role: "alert" },
+      h("p", {}, "An agent changed this description while you were editing. Saving replaces their version with yours."),
+      h("details", {}, h("summary", {}, "Their version"), h("div", { class: "md", html: markdown(t.desc || "*Empty*") }))) : null,
+    ta, h("div", { class: "row-end" }, h("span", { class: "hint" }, "Ctrl+Enter to save"), h("button", { onclick: cancel }, "Cancel"), h("button", { class: "primary", onclick: save }, "Save")));
     if (ui.focusDesc) {
       ui.focusDesc = false;
       setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0);
@@ -2681,7 +2721,7 @@ function fillPanel(panel, t) {
   for (const a of panel.querySelectorAll("a.tref")) a.addEventListener("click", (e) => { e.preventDefault(); select(a.dataset.ref); });
 }
 
-function editDesc() { ui.editingDesc = true; ui.focusDesc = true; renderPanel(); }
+function editDesc() { ui.editingDesc = true; ui.focusDesc = true; drafts.descBase = get(ui.selected)?.desc ?? null; renderPanel(); }
 
 function autosize(ta) {
   if (ta.closest(".desc-edit")) return;
@@ -2726,15 +2766,15 @@ function nowCard(t, vs, ro, note) {
 function stateMenu(t) {
   return [{ head: "Move to" }, ...STATES.map((s) => ({
     label: [h("span", { class: `dot s-${s}` }), LABEL[s]], icon: s === t.state ? "check" : null,
-    run: () => { if (s !== t.state) commit(ops.state(t.id, t.state, s)); },
+    run: () => { if (s !== t.state) commit(ops.state(t.id, seenOf(t), s)); },
   }))];
 }
 
 function groupMenu(t) {
   return [{ head: "Group" }, ...board.groups.map((g, i) => ({
     label: [h("i", { class: "gsw", style: `--g:${GROUP_COLORS[i % GROUP_COLORS.length]}` }), g.name], icon: g.id === t.group ? "check" : null,
-    run: () => { if (g.id !== t.group) commit(ops.set(t.id, { group: g.id })); },
-  })), "sep", { label: "No group", icon: t.group ? null : "check", run: () => { if (t.group) commit(ops.set(t.id, { group: null })); } }];
+    run: () => { if (g.id !== t.group) commit(ops.set(t.id, { group: g.id }, { group: t.group })); },
+  })), "sep", { label: "No group", icon: t.group ? null : "check", run: () => { if (t.group) commit(ops.set(t.id, { group: null }, { group: t.group })); } }];
 }
 
 function panelMenu(t) {
@@ -2815,11 +2855,11 @@ async function sendBack(t) {
     h("p", {}, "The task returns to To do. Your feedback is added as a note, so the agent sees it when it starts again."),
     h("label", { class: "field" }, "What needs to change?", h("textarea", { name: "text", rows: 4, required: true, placeholder: "e.g. The retry loop never gives up; cap it at 5 attempts." })),
   ], { ok: "Send back" });
-  if (data) commit(ops.state(t.id, t.state, "todo", `Sent back: ${data.get("text").trim()}`));
+  if (data) commit(ops.state(t.id, seenOf(t), "todo", `Sent back: ${data.get("text").trim()}`));
 }
 
-function approveMany(ids) {
-  commit(ops.approve(ids)).then((ok) => ok && toast(`Approved ${ids.length} proposal${ids.length > 1 ? "s" : ""}`));
+function approveMany(tasks) {
+  commit(ops.approve(tasks.map(seenOf))).then((ok) => ok && toast(`Approved ${tasks.length} proposal${tasks.length > 1 ? "s" : ""}`));
 }
 
 // Dialogs ---------------------------------------------------------------------

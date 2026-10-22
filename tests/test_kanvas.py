@@ -1044,23 +1044,29 @@ class ServerTests(TempBoard):
         self.assertEqual(status, 403)
         self.assertEqual(self.raw(), before)
 
-    def browser_move_after_agent(self, state, *agent_args):
-        """The page loads the board, an agent runs a command, then the human moves DV-02 to `state`."""
+    def browser_after_agent(self, op, *agent_args):
+        """The page loads the board, an agent runs a command, then the page saves `op`.
+
+        `op` is JavaScript for the change the human makes, with `seen(id)` giving a task as the page showed it.
+        """
         code = (
             "const base = `http://127.0.0.1:${input.port}/`;\n"
             "const fetch = (url, opts) => globalThis.fetch(new URL(url, base), opts);\n"
             "(async () => {\n"
-            "  const store = serverStore(), seen = await store.load();\n"
+            "  const store = serverStore(), shown = await store.load();\n"
+            "  const seen = (id) => shown.tasks.find((x) => x.id === id);\n"
             "  require('child_process').execFileSync(input.python, [input.script, ...input.agent], { cwd: input.dir });\n"
-            "  const t = seen.tasks.find((x) => x.id === 'DV-02');\n"
-            "  try { await store.save(ops.state(t.id, t.state, input.state), seen); process.stdout.write('saved'); }\n"
+            f"  try {{ await store.save({op}, shown); process.stdout.write('saved'); }}\n"
             "  catch (e) { process.stdout.write(`refused: ${e.message}`); }\n"
             "})();"
         )
         sections = [("function serverStore()", "function fileStore("), ("function mustFind(", "\n// ----")]
-        args = {"port": self.port, "python": sys.executable, "script": SCRIPT, "dir": self.dir,
-                "state": state, "agent": list(agent_args)}
+        args = {"port": self.port, "python": sys.executable, "script": SCRIPT, "dir": self.dir, "agent": list(agent_args)}
         return run_html_js(self, code, json.dumps(args), sections)
+
+    def browser_move_after_agent(self, state, *agent_args):
+        """The page loads the board, an agent runs a command, then the human moves DV-02 to `state`."""
+        return self.browser_after_agent(f"ops.state('DV-02', seenOf(seen('DV-02')), {json.dumps(state)})", *agent_args)
 
     def test_a_browser_move_does_not_overwrite_an_agent_move(self):
         self.run_cli("start", "DV-02")
@@ -1073,6 +1079,37 @@ class ServerTests(TempBoard):
         self.assertEqual(out, "saved")
         self.assertEqual(self.get("DV-02")["state"], "doing")
         self.assertEqual(self.get("DV-03")["notes"][0]["text"], "agent wrote first")
+
+    def test_approving_refuses_a_proposal_an_agent_revised(self):
+        approve = "ops.state('DV-04', seenOf(seen('DV-04')), 'todo')"
+        out = self.browser_after_agent(approve, "edit", "DV-04", "--desc", "Now it also rewrites the parser")
+        self.assertEqual(out, "refused: DV-04 was revised since you opened it; read the new version first")
+        self.assertEqual(self.get("DV-04")["state"], "proposed")
+        self.run_cli("propose", "Development", "Base")
+        self.assertIn("refused: DV-04 was revised", self.browser_after_agent(approve, "depend", "DV-04", "DV-05"))
+        self.assertEqual(self.browser_after_agent(approve, "note", "DV-04", "Only a note"), "saved")
+        self.assertEqual(self.get("DV-04")["state"], "todo")
+
+    def test_approving_several_stops_at_a_revised_one(self):
+        self.run_cli("propose", "Development", "Second")
+        self.run_cli("propose", "Development", "Third")
+        approve = "ops.approve(['DV-04', 'DV-05', 'DV-06'].map((id) => seenOf(seen(id))))"
+        out = self.browser_after_agent(approve, "edit", "DV-05", "--title", "Second, reworded")
+        self.assertEqual(out, "refused: DV-05 was revised since you looked; read the new version first")
+        self.assertEqual([self.get(i)["state"] for i in ("DV-04", "DV-05", "DV-06")], ["proposed"] * 3)
+        self.assertEqual(self.browser_after_agent(approve, "withdraw", "DV-06"), "saved")
+        self.assertEqual([self.get(i)["state"] for i in ("DV-04", "DV-05")], ["todo", "todo"])
+
+    def test_a_browser_edit_does_not_overwrite_an_agent_edit(self):
+        edit = "ops.set('DV-04', { title: 'Mine' }, { title: seen('DV-04').title })"
+        out = self.browser_after_agent(edit, "edit", "DV-04", "--title", "Theirs")
+        self.assertEqual(out, "refused: the title of DV-04 changed meanwhile")
+        self.assertEqual(self.get("DV-04")["title"], "Theirs")
+        desc = "ops.set('DV-04', { desc: 'Mine' }, { desc: seen('DV-04').desc })"
+        self.assertEqual(self.browser_after_agent(desc, "edit", "DV-04", "--desc", "Theirs"),
+                         "refused: the description of DV-04 changed meanwhile")
+        self.assertEqual(self.browser_after_agent(edit, "edit", "DV-04", "--desc", "Theirs, again"), "saved")
+        self.assertEqual((self.get("DV-04")["title"], self.get("DV-04")["desc"]), ("Mine", "Theirs, again"))
 
     def test_browser_writes_are_canonical(self):
         board = json.loads(self.raw())
