@@ -773,10 +773,14 @@ def project_command(rest=""):
 
 
 def _version_key(version):
-    try:
-        return tuple(int(part) for part in version.split("."))
-    except ValueError:
+    """Sortable form of a release number: 0.4.0a1 < 0.4.0b1 < 0.4.0rc1 < 0.4.0 < 0.4.1."""
+    m = re.fullmatch(r"(\d+(?:\.\d+)*)(?:(a|b|rc)(\d+))?", version.strip())
+    if not m:
         return None
+    numbers = tuple(int(part) for part in m.group(1).split("."))
+    numbers += (0,) * (3 - len(numbers))
+    stage = ("a", "b", "rc").index(m.group(2)) if m.group(2) else 3
+    return numbers, stage, int(m.group(3) or 0)
 
 
 def agent_copy_hint(board_path):

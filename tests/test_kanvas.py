@@ -829,9 +829,16 @@ class InstalledCommandTests(TempBoard):
                          "This project's agent copy is 0.5.0, newer than your kanvas 0.4.0; "
                          "update it with `uv tool upgrade kanvas-board`.")
 
+    def test_test_versions_come_before_their_release(self):
+        order = ["0.4.0a1", "0.4.0b2", "0.4.0rc1", "0.4.0rc2", "0.4", "0.4.1", "0.10.0rc1", "0.10.0"]
+        self.assertEqual(sorted(order, key=kanvas._version_key), order)
+        self.assertIn("update it to 0.4.0.", self.hint("0.4.0rc1", "0.4.0", installed=True, on_path=True))
+        self.assertIn("update it to 0.4.0rc2.", self.hint("0.4.0rc1", "0.4.0rc2", installed=True, on_path=True))
+        self.assertIn("newer than your kanvas 0.4.0rc1", self.hint("0.4.0", "0.4.0rc1", installed=True, on_path=True))
+
     def test_no_hint_when_versions_match_or_cannot_be_read(self):
         self.assertIsNone(self.hint("0.5.0", installed=True, on_path=True))
-        self.assertIsNone(self.hint("0.6.0rc1", installed=True, on_path=True))
+        self.assertIsNone(self.hint("0.5", installed=True, on_path=True))
         self.assertIsNone(self.hint("0.4.0", "0.5.0.dev1", installed=True, on_path=True))
         self.write_copy("# no version here")
         with self.running(installed=True, on_path=True):

@@ -54,6 +54,10 @@ cd /tmp/demo && python /path/to/kanvas.py serve
 
 Then exercise both views, the task panel, and live updates by running CLI commands (`start`, `note`, `finish`) in another terminal while the page is open. Opening `kanvas.html` directly (file mode) and `kanvas.py export` (read-only snapshot) are separate code paths worth a look when touching storage or rendering.
 
+## Releasing
+
+Set the version in `kanvas.py` (`VERSION = "..."`) and in the `VERSION` file, then publish a GitHub release tagged `v` plus that version. `.github/workflows/release.yml` checks the tag, builds once, runs `tests/check_installed.py` on Linux, macOS and Windows, and uploads to PyPI through trusted publishing in the `pypi` environment. Test versions such as `0.4.0rc1` need a release marked as a pre-release, and final versions need one that is not; the workflow refuses a mismatch. Pull requests that change the workflow run it without the upload.
+
 ## Cursor Cloud specific instructions
 
 - Python 3 and Node.js are preinstalled; no setup step is needed.
