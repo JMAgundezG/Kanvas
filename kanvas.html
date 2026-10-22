@@ -134,9 +134,10 @@ svg#edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-even
 .edge.open { stroke: var(--edge-open); }
 .edge.related { stroke: var(--accent); stroke-width: 2.2; }
 .edge.temp { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; }
-.edge.live { stroke: var(--doing); stroke-width: 2; stroke-dasharray: 7 5; animation: flow 1s linear infinite; }
+.edge.live { stroke: var(--doing); stroke-width: 2; stroke-dasharray: 7 5; animation: flow 3s linear infinite; animation-delay: var(--flow-phase, 0s); }
 .edge.yolo { stroke: var(--yolo); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 2.5px color-mix(in srgb, var(--y2) 70%, transparent)); }
-@keyframes flow { to { stroke-dashoffset: -14; } }
+/* 36 is a whole number of dashes for both live patterns, 7 5 and the implied 5 4, so the loop has no seam. */
+@keyframes flow { to { stroke-dashoffset: -36; } }
 .m-met { fill: var(--edge); } .m-open { fill: var(--edge-open); } .m-hl { fill: var(--accent); } .m-live { fill: var(--doing); } .m-yolo { fill: var(--yolo); }
 #edge-hits path { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
 .edge.implied:not(.shown), #edge-hits path.implied:not(.shown) { display: none; }
@@ -2075,6 +2076,8 @@ function renderGraph() {
     paths += `<path class="edge ${cls}${m === cls ? "" : ` ${m}`}${imp}" ${ends} data-m="${m}" marker-end="url(#m-${m})" d="${path}"/>`;
     hits += `<path class="${imp.trim()}" ${ends} d="${path}"/>`;
   }
+  // Rebuilt arrows pick up the flow where the old ones were, instead of restarting it.
+  $("#edge-layer").style.setProperty("--flow-phase", `${-(performance.now() % 3000)}ms`);
   $("#edge-layer").innerHTML = paths;
   $("#edge-hits").innerHTML = hits;
 
