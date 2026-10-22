@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "0.4.0"
+VERSION = "0.4.0rc1"
 FORMAT = 1
 INSTALLED = __name__ == "kanvas_board"
 BOARD_FILE = "kanvas.json"
