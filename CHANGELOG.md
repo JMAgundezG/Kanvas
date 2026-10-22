@@ -24,13 +24,14 @@ Kanvas runs without Obsidian. The board is a JSON file, agents use a new CLI, an
 - Agents add notes with `note`; notes record the author (`--as`, `KANVAS_AGENT`)
 - Group prefixes may contain digits, such as `L0C-01` (#12), and IDs continue past 99
 - Install Kanvas as the `kanvas` command on Linux, macOS and Windows with `uv tool install kanvas-board` or `pipx install kanvas-board`, or try it with `uvx kanvas-board`; uv downloads Python when it is missing, and agents keep using the project's copy, so they need nothing installed
-- `init` installs an agent skill in `.agents/skills/kanvas/`, creates an `AGENTS.md` pointing to it when the project has none, and never modifies existing files (#8); run without a folder, it sets up the folder of an existing board, else the top folder of the git repository, and `kanvas init .` keeps the current folder
+- `init` installs an agent skill in `.agents/skills/kanvas/`, where Codex, Cursor, Gemini CLI, OpenCode and GitHub Copilot find it, with a copy in `.claude/skills/` for Claude Code; it creates an `AGENTS.md` pointing to it when the project has none, and never modifies existing files (#8); run without a folder, it sets up the folder of an existing board, else the top folder of the git repository, and `kanvas init .` keeps the current folder
 - `serve` in a project without a board offers to create one, so a first-time user needs only `kanvas serve`; without a person at the terminal it fails with a message naming `kanvas init`
-- Or let your agent set Kanvas up: the README has one sentence to paste into Claude Code, Codex, Cursor or Gemini CLI, which runs `init` and starts planning with you. When a sandbox keeps `.agents/` read-only, as Codex's does, `init` changes nothing and says to run it outside the sandbox
+- Or let your agent set Kanvas up: the README has one sentence to paste into Claude Code, Codex, Cursor, Gemini CLI or OpenCode, which runs `init` and starts planning with you. When a sandbox keeps `.agents/` read-only, as Codex's does, `init` changes nothing and says to run it outside the sandbox
 - Messages name the command you typed: `kanvas ...` for the installed command, `python .agents/skills/kanvas/kanvas.py ...` for the project's copy
 - The browser page suggests `kanvas serve`, or the project's copy when the command is not installed, and the empty board asks you to have your agent interview you and plan the project
 - `status` and `serve` say when a project's agent copy is out of date and suggest `kanvas init`, or `uv tool upgrade kanvas-board` when the installed `kanvas` is the older one
 - Text options read UTF-8 from `--stdin` or `--file` on every platform, fixing multi-line and non-ASCII text on Windows (#20, #23)
+- The skill's planning guidance fits any kind of work: agents first look at what the project already holds and what you want from the board, and size tasks to how you want to follow them, from large milestones to small steps
 - The skill asks agents to sign notes with their tool's name (`claude-code`, `cursor`, `codex`, ...) so the board shows who did what
 - Text arguments may follow options, as in `note DV-01 --as claude "..."`
 - Add `check`, `depend`, `add-group`, `import` (migrates Obsidian `.canvas` boards) and `export`

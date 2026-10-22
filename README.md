@@ -15,7 +15,7 @@ AI agents do their best work in a terminal, but a project needs a plan that outl
 - **You stay in control.** Agents propose tasks and you approve them. Agents finish tasks and you review them. Only you mark work done, unless you hand a chain of tasks over with YOLO, and even then the task at its end comes back to you for review.
 - **Agents cannot break the board.** They change it through `kanvas.py`, which enforces the workflow and rejects invalid moves with a clear message.
 - **Live.** Agent changes appear in the browser within a second, and your edits are on disk immediately for the agent's next command.
-- **Agent-agnostic.** Claude Code, Codex, Cursor, Gemini CLI, or anything that runs shell commands. Use several at once; notes record who did what.
+- **Agent-agnostic.** Claude Code, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot, or anything that runs shell commands. Use several at once; notes record who did what.
 - **Git-friendly.** The board is plain, stably formatted JSON. Commit it with the code and your history shows how the plan evolved.
 
 ## Quick start
@@ -70,11 +70,11 @@ The plan arrives as proposals. Approve the ones you want, and tell the agent to 
 
 ### Let your agent set it up
 
-With uv installed (step 1), you can hand steps 2 to 4 to your agent. Open Claude Code, Codex, Cursor or Gemini CLI in your project's folder and paste:
+With uv installed (step 1), you can hand steps 2 to 4 to your agent. Open Claude Code, Codex, Cursor, Gemini CLI or OpenCode in your project's folder and paste:
 
-> Set up Kanvas in this project with `uvx kanvas-board init` (https://github.com/XMihura/Kanvas), then follow `.agents/skills/kanvas/SKILL.md` to interview me and plan the project on the board.
+> Set up Kanvas in this project with `uvx kanvas-board init` (https://github.com/XMihura/Kanvas), then follow `.agents/skills/kanvas/SKILL.md` and plan the work with me on the board.
 
-The agent creates the board, asks you about the project and proposes a plan. To watch the board, run `uvx kanvas-board serve` in the project's folder, or `kanvas serve` if you installed Kanvas. Codex keeps `.agents/` read-only in its sandbox, so it asks your permission to run `init` outside it.
+The agent creates the board, looks at what the project already holds, asks you what it needs to know and proposes a plan. To watch the board, run `uvx kanvas-board serve` in the project's folder, or `kanvas serve` if you installed Kanvas. Codex keeps `.agents/` read-only in its sandbox, so it asks your permission to run `init` outside it. Gemini CLI loads the skill only in folders you have marked as trusted, and asks before using it.
 
 ### Other ways to install and update
 
@@ -175,7 +175,7 @@ You type `kanvas <command>`; `kanvas -h` lists the commands and `kanvas <command
 | `import FILE.canvas` | Migrate a Kanvas 0.x Obsidian board |
 | `export [FILE.html]` | Write a read-only snapshot |
 
-`init` creates `kanvas.json` and installs the agent skill in `.agents/skills/kanvas/` (a copy of `kanvas.py`, `kanvas.html` and `SKILL.md`), with copies of `SKILL.md` in `.claude/skills/` (and in `.cursor/` or `.gemini/` when those folders exist). When the project has no `AGENTS.md`, it creates one that points agents to the skill. Run without a folder, it picks the folder that already holds a board (the current folder or one above it), else the top folder of the git repository, else the current folder; `kanvas init .` keeps the current folder, for one board per subproject. Apart from the skill files it installs, it never modifies an existing file.
+`init` creates `kanvas.json` and installs the agent skill in `.agents/skills/kanvas/` (a copy of `kanvas.py`, `kanvas.html` and `SKILL.md`), and a copy of `SKILL.md` in `.claude/skills/` for Claude Code, which reads skills only from there. Codex, Cursor, Gemini CLI, OpenCode and GitHub Copilot read `.agents/skills/`. When the project has no `AGENTS.md`, it creates one that points agents to the skill. Run without a folder, it picks the folder that already holds a board (the current folder or one above it), else the top folder of the git repository, else the current folder; `kanvas init .` keeps the current folder, for one board per subproject. Apart from the skill files it installs, it never modifies an existing file.
 
 In a project without a board, `serve` asks whether to create one, then opens it. Without a person at the terminal, it fails with a message naming `kanvas init`.
 

@@ -1,17 +1,19 @@
 ---
 name: kanvas
 description: Plan and track work on the project's Kanvas board (kanvas.json), which you share with a human who approves and reviews tasks. Use when the user mentions the board, Kanvas, tasks, planning, "what's next", or a task ID such as DV-03.
+license: MIT
+compatibility: Requires Python 3.8 or later.
 ---
 
 # Kanvas
 
-The board is `kanvas.json` at the project root. Change it only through the CLI that sits next to this file; the CLI enforces the workflow and keeps the file valid:
+The board is `kanvas.json` at the project root. Change it only through the CLI in `.agents/skills/kanvas/`; the CLI enforces the workflow and keeps the file valid:
 
 ```bash
 python .agents/skills/kanvas/kanvas.py <command>
 ```
 
-Use `python3` where `python` is missing. Never edit `kanvas.json` by hand. The human watches the board in a browser (`kanvas.py serve`), where your changes appear within a second.
+Use `python3` where `python` is missing. Never edit `kanvas.json` by hand. The human watches the board in a browser, where your changes appear within a second. It opens with `kanvas serve` when Kanvas is installed, or `python .agents/skills/kanvas/kanvas.py serve`.
 
 ## Workflow
 
@@ -53,7 +55,7 @@ To stop halfway, run `pause ID -m "Where I left off and why"`.
 
 ## Planning
 
-When asked to plan a project, interview the user briefly, then propose the whole plan in one batch:
+When asked to plan, get to know the work first: what is already there (code, documents, the board itself) and what the user wants from the board. Tasks can be large milestones the user checks now and then, or small steps they follow closely; size them to how the user wants to work, and ask when it is unclear. Propose the plan in one batch:
 
 ```bash
 python .agents/skills/kanvas/kanvas.py batch <<'EOF'
@@ -69,7 +71,7 @@ EOF
 
 `deps` takes task IDs or the titles of earlier tasks in the same batch. A batch is all or nothing. Everything arrives as proposals; ask the human to approve them in the board.
 
-Keep tasks small enough to finish in one session, give each a clear outcome in `desc`, and use groups for areas of work (Research, Backend, Docs). A group's ID prefix starts every task ID in it (`RS-01`).
+Give each task a `desc` that says what finished means, since the human reviews against it. Groups are areas of work; a group's ID prefix starts every task ID in it (`RS-01`).
 
 ## Commands
 
@@ -90,7 +92,7 @@ Keep tasks small enough to finish in one session, give each a clear outcome in `
 | `depend ID ON [ON ...]` | ID waits for the others (cycles are rejected) |
 | `check` | Validate the board |
 
-Notes record your name, so the human can tell who did what. Sign with the name of your tool: `claude-code`, `cursor`, `codex`, `gemini`, `copilot`, or another short name for it. Pass `--as cursor` to each command, or set `KANVAS_AGENT=cursor` once if your shell keeps environment variables between commands. When several agents of one tool share the board, add what each one does, as in `cursor-docs`. Unsigned notes show as `agent`.
+Notes record your name, so the human can tell who did what. Sign with the name of your tool: `claude-code`, `cursor`, `codex`, `gemini`, `copilot`, `opencode`, or another short name for it. Pass `--as cursor` to each command, or set `KANVAS_AGENT=cursor` once if your shell keeps environment variables between commands. When several agents of one tool share the board, add what each one does, as in `cursor-docs`. Unsigned notes show as `agent`.
 
 ## Long or non-ASCII text
 

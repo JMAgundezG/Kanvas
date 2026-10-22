@@ -1213,7 +1213,11 @@ def init_project(target, reason=None, next_steps=True):
     # and a refused write should leave the project as it was.
     report = []
     skill_dir = os.path.join(target, ".agents", "skills", "kanvas")
-    mirrors = [".claude"] + [d for d in (".cursor", ".gemini") if os.path.isdir(os.path.join(target, d))]
+    # Claude Code reads skills only from .claude/skills; the other agents read .agents/skills.
+    # Older versions also copied the skill into .cursor and .gemini, and those copies stay current.
+    mirrors = [".claude"] + [
+        d for d in (".cursor", ".gemini") if os.path.isfile(os.path.join(target, d, "skills", "kanvas", "SKILL.md"))
+    ]
     try:
         os.makedirs(skill_dir, exist_ok=True)
         for src, name in ((os.path.abspath(__file__), "kanvas.py"), (HTML_FILE, "kanvas.html"), (skill_md, "SKILL.md")):
@@ -1257,7 +1261,7 @@ def init_project(target, reason=None, next_steps=True):
         print("\nOpen the board:")
         print(f"  {project_command('serve')}")
     if not points_to_skill(target):
-        print("\nAgents without skill support: add this line to AGENTS.md or CLAUDE.md:")
+        print("\nSo agents know about the board in every session, add this line to AGENTS.md or CLAUDE.md:")
         print(f"  {AGENTS_LINE}")
     print("\nNo existing file was modified.")
     return board_file

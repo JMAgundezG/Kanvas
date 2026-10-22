@@ -522,6 +522,16 @@ class InitTests(unittest.TestCase):
         os.makedirs(path, exist_ok=True)
         return path
 
+    def test_init_refreshes_skill_copies_from_older_versions(self):
+        old = os.path.join(self.dir, ".cursor", "skills", "kanvas", "SKILL.md")
+        os.makedirs(os.path.dirname(old))
+        with open(old, "w", encoding="utf-8") as f:
+            f.write("old skill\n")
+        self.init()
+        with open(old, encoding="utf-8") as f, open(os.path.join(ROOT, "skill", "SKILL.md"), encoding="utf-8") as g:
+            self.assertEqual(f.read(), g.read())
+        self.assertFalse(os.path.exists(os.path.join(self.dir, ".gemini")))
+
     def test_init_installs_the_skill_and_never_overwrites(self):
         mine = "# My agent instructions\n"
         for name in ("AGENTS.md", "CLAUDE.md"):
@@ -533,8 +543,9 @@ class InitTests(unittest.TestCase):
         self.assertNotIn("created   AGENTS.md", out)
         self.assertIn("add this line to AGENTS.md or CLAUDE.md", out)
         for rel in (".agents/skills/kanvas/kanvas.py", ".agents/skills/kanvas/kanvas.html",
-                    ".agents/skills/kanvas/SKILL.md", ".claude/skills/kanvas/SKILL.md", ".cursor/skills/kanvas/SKILL.md"):
+                    ".agents/skills/kanvas/SKILL.md", ".claude/skills/kanvas/SKILL.md"):
             self.assertTrue(os.path.isfile(os.path.join(self.dir, rel)), rel)
+        self.assertEqual(os.listdir(os.path.join(self.dir, ".cursor")), [])
         self.assertFalse(os.path.exists(os.path.join(self.dir, ".gemini")))
         for name in ("AGENTS.md", "CLAUDE.md"):
             with open(os.path.join(self.dir, name), encoding="utf-8") as f:
