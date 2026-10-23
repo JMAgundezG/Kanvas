@@ -132,17 +132,17 @@ main { flex: 1; position: relative; min-height: 0; display: flex; }
 svg#edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
 .edge { fill: none; stroke: var(--edge); stroke-width: 1.6; transition: opacity .15s; }
 .edge.open { stroke: var(--edge-open); }
-.edge.related { stroke: var(--accent); stroke-width: 2.2; }
 .edge.temp { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; }
 .edge.live { stroke: var(--doing); stroke-width: 2; stroke-dasharray: 7 5; animation: flow 3s linear infinite; animation-delay: var(--flow-phase, 0s); }
 .edge.yolo { stroke: var(--yolo); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 2.5px color-mix(in srgb, var(--y2) 70%, transparent)); }
+.edge.related:not(.yolo) { stroke: var(--accent); stroke-width: 2.2; }
 /* 36 is a whole number of dashes for both live patterns, 7 5 and the implied 5 4, so the loop has no seam. */
 @keyframes flow { to { stroke-dashoffset: -36; } }
 .m-met { fill: var(--edge); } .m-open { fill: var(--edge-open); } .m-hl { fill: var(--accent); } .m-live { fill: var(--doing); } .m-yolo { fill: var(--yolo); }
 #edge-hits path { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
 .edge.implied:not(.shown), #edge-hits path.implied:not(.shown) { display: none; }
 .edge.implied { stroke-dasharray: 5 4; }
-.edge.hover, .edge.menu-target { stroke: var(--accent); stroke-width: 2.6; }
+.edge:is(.hover, .menu-target):not(.yolo) { stroke: var(--accent); stroke-width: 2.6; }
 #world.focusing .edge.hover, #world.focusing .edge.menu-target { opacity: 1; }
 .card { position: absolute; left: 0; top: 0; width: var(--cw); height: var(--ch); padding: 9px 11px 8px; border-radius: 10px; background: color-mix(in srgb, var(--c) 8%, var(--surface)); border: 1.5px solid var(--c); box-shadow: var(--shadow); cursor: pointer; display: flex; flex-direction: column; gap: 3px; user-select: none; transition: opacity .15s, box-shadow .15s; }
 .card:hover { box-shadow: var(--shadow-lg); }
@@ -2176,7 +2176,7 @@ function applyFocus() {
   world.classList.toggle("focusing", !!(link || focus));
   if (!link && !focus) {
     for (const el of cardEls.values()) el.classList.remove("related");
-    for (const p of document.querySelectorAll("#edge-layer path")) { p.classList.remove("related"); p.setAttribute("marker-end", `url(#m-${p.dataset.m})`); }
+    for (const p of document.querySelectorAll("#edge-layer path")) { p.classList.remove("related"); markEdge(p); }
     return;
   }
   // A connection lights up just its two tasks and the arrow between them.
@@ -2186,8 +2186,14 @@ function applyFocus() {
     const a = key(p.dataset.from), b = key(p.dataset.to);
     const on = (up.has(a) && up.has(b)) || (down.has(a) && down.has(b));
     p.classList.toggle("related", on);
-    p.setAttribute("marker-end", `url(#m-${on && p.dataset.m !== "yolo" ? "hl" : p.dataset.m})`);
+    markEdge(p);
   }
+}
+
+// Arrowheads are markers, which do not follow the arrow's CSS, so a highlighted arrow swaps its head too.
+function markEdge(p) {
+  const on = p.dataset.m !== "yolo" && ["related", "hover", "menu-target"].some((c) => p.classList.contains(c));
+  p.setAttribute("marker-end", `url(#m-${on ? "hl" : p.dataset.m})`);
 }
 
 function flash(ids) {
@@ -2510,8 +2516,8 @@ function setupGraphInput() {
   };
   vp.addEventListener("pointerup", end);
   vp.addEventListener("pointercancel", end);
-  $("#edge-hits").addEventListener("pointerover", (e) => { if (!drag && !menuEl && !picking && e.target.dataset.from) edgeFor(e.target)?.classList.add("hover"); });
-  $("#edge-hits").addEventListener("pointerout", (e) => { if (e.target.dataset.from) edgeFor(e.target)?.classList.remove("hover"); });
+  $("#edge-hits").addEventListener("pointerover", (e) => { if (!drag && !menuEl && !picking && e.target.dataset.from) { const p = edgeFor(e.target); if (p) { p.classList.add("hover"); markEdge(p); } } });
+  $("#edge-hits").addEventListener("pointerout", (e) => { if (e.target.dataset.from) { const p = edgeFor(e.target); if (p) { p.classList.remove("hover"); markEdge(p); } } });
   vp.addEventListener("wheel", (e) => {
     e.preventDefault();
     const r = vp.getBoundingClientRect();
@@ -3241,6 +3247,7 @@ function closeMenu(refocus = false) {
   menuClosed = { el: target, at: Date.now() };
   for (const el of document.querySelectorAll(".menu-target")) {
     el.classList.remove("menu-target");
+    if (el.matches(".edge")) markEdge(el);
     if (el.hasAttribute("aria-expanded")) el.setAttribute("aria-expanded", "false");
   }
   if (ui.link) { ui.link = null; applyFocus(); }
