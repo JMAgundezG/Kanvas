@@ -973,6 +973,8 @@ class ServerTests(TempBoard):
         super().setUp()
         self.server = kanvas.start_server(self.path, "127.0.0.1", 0, quiet=True)
         self.port = self.server.server_address[1]
+        self.name = kanvas.board_name(self.path)
+        self.api = f"/{self.name}/api/board"
         thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(self.server.server_close)
@@ -991,7 +993,7 @@ class ServerTests(TempBoard):
         headers = {"Content-Type": ctype}
         if etag:
             headers["If-Match"] = etag
-        return self.request("PUT", "/api/board", json.dumps(board).encode("utf-8"), headers)
+        return self.request("PUT", self.api, json.dumps(board).encode("utf-8"), headers)
 
     def test_starting_skips_the_host_name_lookup(self):
         """socket.getfqdn, which HTTPServer calls on start, can take half a minute on macOS."""
@@ -1001,17 +1003,17 @@ class ServerTests(TempBoard):
         self.assertEqual(server.server_name, "127.0.0.1")
 
     def test_serves_the_page_and_the_board(self):
-        status, headers, body = self.request("GET", "/")
+        status, headers, body = self.request("GET", f"/{self.name}/")
         self.assertEqual(status, 200)
         self.assertIn(b"<title>Kanvas</title>", body)
-        status, headers, body = self.request("GET", "/api/board")
+        status, headers, body = self.request("GET", self.api)
         self.assertEqual(status, 200)
         self.assertEqual(body, self.raw())
-        status, _, body = self.request("GET", "/api/board", headers={"If-None-Match": headers["ETag"]})
+        status, _, body = self.request("GET", self.api, headers={"If-None-Match": headers["ETag"]})
         self.assertEqual((status, body), (304, b""))
 
     def test_compare_and_swap(self):
-        _, headers, body = self.request("GET", "/api/board")
+        _, headers, body = self.request("GET", self.api)
         etag = headers["ETag"]
         board = json.loads(body)
         self.run_cli("note", "DV-02", "agent wrote first")
@@ -1038,11 +1040,82 @@ class ServerTests(TempBoard):
         dup = json.loads(before)
         dup["tasks"].append(dict(dup["tasks"][0]))
         self.assertEqual(self.put(dup)[0], 400)
-        status, _, _ = self.request("GET", "/api/board", headers={"Host": "evil.example:8765"})
+        status, _, _ = self.request("GET", self.api, headers={"Host": "evil.example:8765"})
         self.assertEqual(status, 403)
-        status, _, _ = self.request("PUT", "/api/board", b"{}", {"Host": "evil.example", "Content-Type": "application/json"})
+        status, _, _ = self.request("PUT", self.api, b"{}", {"Host": "evil.example", "Content-Type": "application/json"})
         self.assertEqual(status, 403)
         self.assertEqual(self.raw(), before)
+
+    def other_project(self, folder="other", title="Other"):
+        path = os.path.join(self.dir, folder, "kanvas.json")
+        os.makedirs(os.path.dirname(path))
+        write_board(path, dict(self.initial_board(), title=title))
+        return path
+
+    def open_board(self, path, host="127.0.0.1"):
+        body = json.dumps({"path": path}).encode("utf-8")
+        return self.request("POST", "/api/boards", body, {"Content-Type": "application/json", "Host": host})
+
+    def test_serves_several_boards_each_at_its_own_address(self):
+        status, headers, _ = self.request("GET", "/")
+        self.assertEqual((status, headers["Location"]), (302, f"/{self.name}/"))
+        other = self.other_project()
+        status, _, body = self.open_board(other)
+        self.assertEqual((status, json.loads(body)), (200, {"name": "other", "url": "/other/"}))
+        with open(other, "rb") as f:
+            self.assertEqual(self.request("GET", "/other/api/board")[2], f.read())
+        self.assertEqual(self.request("GET", self.api)[2], self.raw())
+        board = json.loads(self.request("GET", "/other/api/board")[2])
+        board["tasks"][3]["state"] = "todo"
+        status, _, _ = self.request("PUT", "/other/api/board", json.dumps(board).encode("utf-8"), {"Content-Type": "application/json"})
+        self.assertEqual(status, 200)
+        with open(other) as f:
+            self.assertEqual(json.load(f)["tasks"][3]["state"], "todo")
+        self.assertEqual(self.get("DV-04")["state"], "proposed")
+
+        status, _, body = self.request("GET", "/")
+        self.assertEqual(status, 200)
+        self.assertIn(b'href="/other/"', body)
+        self.assertIn(f'href="/{self.name}/"'.encode(), body)
+        listing = json.loads(self.request("GET", "/api/boards")[2])
+        self.assertEqual(listing["kanvas"], kanvas.VERSION)
+        self.assertEqual([(b["name"], b["title"]) for b in listing["boards"]], [(self.name, "Test"), ("other", "Other")])
+        self.assertEqual(self.request("GET", "/other")[1]["Location"], "/other/")
+        self.assertIn(b"<title>Kanvas</title>", self.request("GET", "/other/")[2])
+
+    def test_names_boards_after_their_folders(self):
+        self.assertEqual(json.loads(self.open_board(self.path)[2])["name"], self.name)
+        first = self.other_project(os.path.join("a", "Some project!"))
+        second = self.other_project(os.path.join("b", "Some project!"))
+        api = self.other_project("api")
+        self.assertEqual([json.loads(self.open_board(p)[2])["name"] for p in (first, second, api, first)],
+                         ["Some-project", "Some-project-2", "api-2", "Some-project"])
+
+    def test_unknown_boards_say_how_to_open_them(self):
+        status, _, body = self.request("GET", "/nothing/")
+        self.assertEqual(status, 404)
+        self.assertIn(b"Run <code>kanvas serve</code> in its project", body)
+        status, _, body = self.request("GET", "/nothing/api/board")
+        self.assertEqual(status, 404)
+        self.assertIn("kanvas serve", json.loads(body)["error"])
+        self.assertEqual(self.request("PUT", "/nothing/api/board", b"{}", {"Content-Type": "application/json"})[0], 404)
+
+    def test_opening_a_board_needs_a_board_file_and_this_computer(self):
+        other = self.other_project()
+        self.assertEqual(self.open_board(other, host="evil.example")[0], 403)
+        self.assertEqual(self.request("POST", "/api/boards", json.dumps({"path": other}).encode(), {"Content-Type": "text/plain"})[0], 415)
+        self.assertEqual(self.open_board("other/kanvas.json")[0], 400)
+        notes = os.path.join(self.dir, "notes.json")
+        with open(notes, "w") as f:
+            f.write('{"hello": 1}')
+        self.assertEqual(self.open_board(notes)[0], 400)
+        self.assertEqual([b["name"] for b in json.loads(self.request("GET", "/api/boards")[2])["boards"]], [self.name])
+
+    def test_serve_in_another_project_opens_its_board_in_the_running_kanvas(self):
+        other = self.other_project()
+        code, out, err = self.run_cli("serve", "--no-open", "--port", str(self.port), cwd=os.path.dirname(other))
+        self.assertIn(f"Opened in the Kanvas already running: http://127.0.0.1:{self.port}/other/", out)
+        self.assertEqual([b["path"] for b in json.loads(self.request("GET", "/api/boards")[2])["boards"]], [self.path, other])
 
     def browser_after_agent(self, op, *agent_args):
         """The page loads the board, an agent runs a command, then the page saves `op`.
@@ -1050,7 +1123,7 @@ class ServerTests(TempBoard):
         `op` is JavaScript for the change the human makes, with `seen(id)` giving a task as the page showed it.
         """
         code = (
-            "const base = `http://127.0.0.1:${input.port}/`;\n"
+            "const base = `http://127.0.0.1:${input.port}/${input.name}/`;\n"
             "const fetch = (url, opts) => globalThis.fetch(new URL(url, base), opts);\n"
             "(async () => {\n"
             "  const store = serverStore(), shown = await store.load();\n"
@@ -1061,7 +1134,7 @@ class ServerTests(TempBoard):
             "})();"
         )
         sections = [("function serverStore()", "function fileStore("), ("function mustFind(", "\n// ----")]
-        args = {"port": self.port, "python": sys.executable, "script": SCRIPT, "dir": self.dir, "agent": list(agent_args)}
+        args = {"port": self.port, "name": self.name, "python": sys.executable, "script": SCRIPT, "dir": self.dir, "agent": list(agent_args)}
         return run_html_js(self, code, json.dumps(args), sections)
 
     def browser_move_after_agent(self, state, *agent_args):
@@ -1114,7 +1187,7 @@ class ServerTests(TempBoard):
     def test_browser_writes_are_canonical(self):
         board = json.loads(self.raw())
         board["tasks"][3]["state"] = "todo"
-        status, _, _ = self.request("PUT", "/api/board", json.dumps(board, indent=None).encode("utf-8"), {"Content-Type": "application/json"})
+        status, _, _ = self.request("PUT", self.api, json.dumps(board, indent=None).encode("utf-8"), {"Content-Type": "application/json"})
         self.assertEqual(status, 200)
         text = self.raw().decode("utf-8")
         self.assertEqual(text, kanvas.dumps(kanvas.parse_board(text)))
@@ -1145,12 +1218,13 @@ class ServeWithoutBoardTests(unittest.TestCase):
 
     def serve(self, answer, *args, env=None):
         """Runs `serve` at a pretend terminal, answering its question with `answer` (text or an exception)."""
-        self.server = mock.Mock(server_address=("127.0.0.1", 8765), check_host=True)
+        self.server = mock.Mock(server_address=("127.0.0.1", 8765), check_host=True, **{"add_board.return_value": "project"})
         stdin, stdout, stderr = mock.Mock(), Terminal(), io.StringIO()
         stdin.isatty.return_value = True
         reply = {"return_value": answer} if isinstance(answer, str) else {"side_effect": answer}
         with mock.patch.dict(os.environ), mock.patch("builtins.input", **reply) as self.ask, \
                 mock.patch.object(kanvas, "start_server", return_value=self.server) as self.start, \
+                mock.patch.object(kanvas, "find_running", return_value=None), \
                 mock.patch.object(sys, "stdin", stdin), mock.patch.object(sys, "stdout", stdout), \
                 mock.patch.object(sys, "stderr", stderr):
             os.environ.pop("KANVAS_BOARD", None)

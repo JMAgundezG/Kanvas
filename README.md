@@ -60,7 +60,7 @@ Agents that support skills pick the skill up automatically, and `init` creates a
 Plan and track work on the Kanvas board; follow .agents/skills/kanvas/SKILL.md.
 ```
 
-`serve` opens the board in your browser. Keep it running while you work; Ctrl+C stops it.
+`serve` opens the board in your browser. Keep it running while you work; Ctrl+C stops it. Run `kanvas serve` in your other projects too: their boards open in the same Kanvas, each at its own address such as `http://127.0.0.1:8765/my-project/`, and the terminal is free again right away. Switch boards from the menu on the board's name, or with Shift+← and Shift+→, or keep each in a tab of its own.
 
 **4. Ask your agent:**
 
@@ -173,7 +173,7 @@ You type `kanvas <command>`; `kanvas -h` lists the commands and `kanvas <command
 | `withdraw ID [ID ...]` | Delete proposals that are not approved yet |
 | `undepend ID ON [ON ...]` | Remove dependencies from a proposal |
 | `check` | Validate the board; exit code 1 on errors |
-| `serve [--port N] [--host H]` | Open the board in the browser; in a project without a board, offer to create one first |
+| `serve [--port N] [--host H]` | Open the board in the browser; when Kanvas already runs for another project, open the board there and return. In a project without a board, offer to create one first |
 | `init [DIR]` | Set up Kanvas in a project, or refresh the agents' copy after an update |
 | `import FILE.canvas` | Migrate a Kanvas 0.x Obsidian board |
 | `export [FILE.html]` | Write a read-only snapshot |
@@ -181,6 +181,8 @@ You type `kanvas <command>`; `kanvas -h` lists the commands and `kanvas <command
 `init` creates `kanvas.json` and installs the agent skill in `.agents/skills/kanvas/` (a copy of `kanvas.py`, `kanvas.html` and `SKILL.md`), and a copy of `SKILL.md` in `.claude/skills/` for Claude Code, which reads skills only from there. Codex, Cursor, Gemini CLI, OpenCode and GitHub Copilot read `.agents/skills/`. When the project has no `AGENTS.md`, it creates one that points agents to the skill. Run without a folder, it picks the folder that already holds a board (the current folder or one above it), else the top folder of the git repository, else the current folder; `kanvas init .` keeps the current folder, for one board per subproject. Apart from the skill files it installs, it never modifies an existing file.
 
 In a project without a board, `serve` asks whether to create one, then opens it. Without a person at the terminal, it fails with a message naming `kanvas init`.
+
+One Kanvas serves the boards of all your projects. The first `serve` starts it and keeps running; a `serve` in another project finds it, opens its board there and returns. Each board's address is named after its project folder, and `http://127.0.0.1:8765/` lists the open boards. Kanvas keeps that list only while it runs and writes nothing outside your projects: after a restart, a board comes back when you run `serve` in its project.
 
 Text arguments also accept `--stdin` and `--file PATH`, read as UTF-8 on every platform, which is the reliable way to pass multi-line or non-ASCII text from any shell. Notes are signed with `--as NAME` or the `KANVAS_AGENT` environment variable. The CLI finds `kanvas.json` in the current directory or any parent; `--board PATH` or `KANVAS_BOARD` point elsewhere.
 

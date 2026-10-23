@@ -17,16 +17,20 @@ import json
 import os
 import re
 import shutil
+import socket
 import socketserver
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import quote, unquote, urlparse
 
 VERSION = "0.4.0rc1"
 FORMAT = 1
@@ -1494,22 +1498,77 @@ def cmd_export(args):
 # ---------------------------------------------------------------------------
 
 
+def board_name(path):
+    """The name a board goes by in the URL: its project folder's, made safe for a path."""
+    folder = os.path.basename(os.path.dirname(os.path.abspath(path)))
+    return re.sub(r"[^\w.-]+", "-", folder).strip("-.") or "board"
+
+
+def same_file(a, b):
+    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+
+def page(title, body):
+    return ("<!doctype html><html lang=\"en\"><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            f"<title>{escape(title)}</title><style>:root {{ color-scheme: light dark; font: 15px/1.5 system-ui, sans-serif; }}"
+            " body { max-width: 640px; margin: 56px auto; padding: 0 20px; } h1 { font-size: 22px; }"
+            " a.board { display: block; margin: 8px 0; padding: 10px 14px; border: 1px solid #8885; border-radius: 9px; color: inherit; text-decoration: none; }"
+            " a.board:hover { border-color: #6366f1; } small { display: block; opacity: .6; } code { font-size: 13px; }</style>"
+            f"<body>{body}</body></html>").encode("utf-8")
+
+
 class BoardServer(ThreadingHTTPServer):
+    """Serves every open board, each at /<name>/."""
+
     daemon_threads = True
     # On Windows SO_REUSEADDR lets two servers share a port.
     allow_reuse_address = os.name != "nt"
 
-    def __init__(self, address, path, check_host=True, quiet=False):
+    def __init__(self, address, path=None, check_host=True, quiet=False):
         super().__init__(address, BoardHandler)
-        self.board_path = path
         self.check_host = check_host
         self.quiet = quiet
+        self.boards = {}  # name -> path, in the order the boards were opened
+        self.boards_lock = threading.Lock()
+        if path:
+            self.add_board(path)
 
     def server_bind(self):
         # HTTPServer.server_bind looks up the host's full name with socket.getfqdn,
         # which can take half a minute on macOS. Nothing here uses that name.
         socketserver.TCPServer.server_bind(self)
         self.server_name, self.server_port = self.server_address[:2]
+
+    def add_board(self, path):
+        """Open the board at `path` and return its name. A board that is already open keeps its name."""
+        path = os.path.abspath(path)
+        with self.boards_lock:
+            for name, known in self.boards.items():
+                if same_file(known, path):
+                    return name
+            base = name = board_name(path)
+            n = 2
+            while name in self.boards or name == "api":
+                name, n = f"{base}-{n}", n + 1
+            self.boards[name] = path
+            return name
+
+    def board_path(self, name):
+        with self.boards_lock:
+            return self.boards.get(name)
+
+    def board_list(self):
+        with self.boards_lock:
+            boards = list(self.boards.items())
+        out = []
+        for name, path in boards:
+            try:
+                title = load_board(path)["title"] or name
+            except (KanvasError, OSError):
+                title = name
+            out.append({"name": name, "title": title, "path": path})
+        return out
 
 
 class BoardHandler(BaseHTTPRequestHandler):
@@ -1532,6 +1591,9 @@ class BoardHandler(BaseHTTPRequestHandler):
     def _error(self, code, message):
         self._send(code, json.dumps({"error": message}).encode("utf-8"))
 
+    def _redirect(self, location):
+        self._send(302, headers={"Location": location})
+
     def _host_allowed(self):
         # Rejecting foreign Host headers blocks DNS-rebinding attacks from web pages.
         if not self.server.check_host:
@@ -1540,24 +1602,60 @@ class BoardHandler(BaseHTTPRequestHandler):
         name = host.split("]")[0] + "]" if host.startswith("[") else host.rsplit(":", 1)[0]
         return name in ("localhost", "127.0.0.1", "[::1]")
 
-    def _read_board_bytes(self):
-        with open(self.server.board_path, "rb") as f:
-            return f.read()
+    def _route(self):
+        """The request path as a list of parts: "/a/b/" gives ["a", "b", ""]."""
+        return unquote(urlparse(self.path).path).split("/")[1:]
+
+    def _read_json(self):
+        """The request body, or None after answering with an error."""
+        # Requiring JSON forces a CORS preflight, so other sites cannot write.
+        if not (self.headers.get("Content-Type") or "").startswith("application/json"):
+            return self._error(415, "Expected application/json")
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > MAX_UPLOAD:
+            return self._error(413, "Too large")
+        try:
+            return self.rfile.read(length).decode("utf-8")
+        except UnicodeDecodeError:
+            return self._error(400, "Expected UTF-8")
 
     def do_GET(self):
         if not self._host_allowed():
             return self._error(403, "Host not allowed")
-        route = urlparse(self.path).path
-        if route in ("/", "/index.html"):
+        parts = self._route()
+        if parts in ([""], ["index.html"]):
+            boards = self.server.board_list()
+            if len(boards) == 1:
+                return self._redirect(f"/{quote(boards[0]['name'])}/")
+            links = "".join(f'<a class="board" href="/{quote(b["name"])}/">{escape(b["title"])}<small>{escape(b["path"])}</small></a>'
+                            for b in boards)
+            body = (f"<h1>Kanvas</h1>{links}" if boards else "<h1>Kanvas</h1><p>No boards are open.</p>")
+            body += "<p><small>Run <code>kanvas serve</code> in a project to open its board here.</small></p>"
+            return self._send(200, page("Kanvas", body), "text/html; charset=utf-8")
+        if parts == ["api", "boards"]:
+            info = {"kanvas": VERSION, "boards": self.server.board_list()}
+            return self._send(200, json.dumps(info, ensure_ascii=False).encode("utf-8"))
+        name, rest = parts[0], parts[1:]
+        path = self.server.board_path(name)
+        if path is None:
+            if rest[:1] == ["api"]:
+                return self._error(404, f"No board called {name} is open here; run `kanvas serve` in its project")
+            body = (f"<h1>No board called {escape(name)} is open</h1><p>Run <code>kanvas serve</code> in its project, then reload this page."
+                    ' Kanvas forgets its boards when it stops.</p><p><a href="/">Open boards</a></p>')
+            return self._send(404, page("Kanvas", body), "text/html; charset=utf-8")
+        if not rest:
+            return self._redirect(f"/{quote(name)}/")
+        if rest in ([""], ["index.html"]):
             try:
                 with open(HTML_FILE, "rb") as f:
                     body = f.read()
             except OSError:
                 return self._error(500, "kanvas.html is missing next to kanvas.py")
             return self._send(200, body, "text/html; charset=utf-8")
-        if route == "/api/board":
+        if rest == ["api", "board"]:
             try:
-                data = self._read_board_bytes()
+                with open(path, "rb") as f:
+                    data = f.read()
             except OSError:
                 return self._error(404, "Board file is missing")
             tag = etag_of(data)
@@ -1566,29 +1664,52 @@ class BoardHandler(BaseHTTPRequestHandler):
             return self._send(200, data, headers={"ETag": tag})
         return self._error(404, "Not found")
 
+    def do_POST(self):
+        """Opens another project's board here, for `kanvas serve` in that project."""
+        if not self._host_allowed():
+            return self._error(403, "Host not allowed")
+        if self._route() != ["api", "boards"]:
+            return self._error(404, "Not found")
+        text = self._read_json()
+        if text is None:
+            return
+        try:
+            path = json.loads(text).get("path")
+            if not isinstance(path, str) or not os.path.isabs(path):
+                raise KanvasError("Expected the board's absolute path")
+            # A board always has its task list, so another JSON file is not taken for one.
+            if "tasks" not in json.loads(read_text_file(path)):
+                raise KanvasError(f"{path} is not a Kanvas board")
+            load_board(path)
+        except (KanvasError, ValueError, AttributeError, OSError) as e:
+            return self._error(400, str(e))
+        name = self.server.add_board(path)
+        if not self.server.quiet:
+            print(f"[{time.strftime('%H:%M:%S')}] opened {name}: {path}", flush=True)
+        self._send(200, json.dumps({"name": name, "url": f"/{quote(name)}/"}, ensure_ascii=False).encode("utf-8"))
+
     def do_PUT(self):
         if not self._host_allowed():
             return self._error(403, "Host not allowed")
-        if urlparse(self.path).path != "/api/board":
+        parts = self._route()
+        path = self.server.board_path(parts[0]) if parts[1:] == ["api", "board"] else None
+        if path is None:
             return self._error(404, "Not found")
-        # Requiring JSON forces a CORS preflight, so other sites cannot write.
-        if not (self.headers.get("Content-Type") or "").startswith("application/json"):
-            return self._error(415, "Expected application/json")
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_UPLOAD:
-            return self._error(413, "Board too large")
+        text = self._read_json()
+        if text is None:
+            return
         try:
-            board = parse_board(self.rfile.read(length).decode("utf-8"))
-        except (KanvasError, UnicodeDecodeError) as e:
+            board = parse_board(text)
+        except KanvasError as e:
             return self._error(400, str(e))
         errors = structural_errors(board)
         if errors:
             return self._error(400, "; ".join(errors))
         data = dumps(board).encode("utf-8")
-        path = self.server.board_path
         try:
             with locked(path):
-                current = self._read_board_bytes()
+                with open(path, "rb") as f:
+                    current = f.read()
                 current_tag = etag_of(current)
                 expected = self.headers.get("If-Match")
                 if expected and expected != current_tag:
@@ -1596,7 +1717,7 @@ class BoardHandler(BaseHTTPRequestHandler):
                 if data != current:
                     write_text_atomic(path, data.decode("utf-8"))
                     if not self.server.quiet:
-                        print(f"[{time.strftime('%H:%M:%S')}] saved from the browser", flush=True)
+                        print(f"[{time.strftime('%H:%M:%S')}] saved {parts[0]} from the browser", flush=True)
         except (KanvasError, OSError) as e:
             return self._error(503, str(e))
         self._send(200, data, headers={"ETag": etag_of(data)})
@@ -1614,6 +1735,53 @@ def start_server(path, host="127.0.0.1", port=8765, quiet=False):
                 raise
             last_error = e
     raise KanvasError(f"No free port between {port} and {port + 19}: {last_error}")
+
+
+# Proxy settings must not send requests for this computer elsewhere.
+LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def port_free(host, port):
+    with socket.socket() as s:
+        try:
+            s.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def find_running(port, host="127.0.0.1"):
+    """Return (url, version) of a Kanvas already serving boards on one of the ports `serve` tries, or None."""
+    for p in range(port, port + 20):
+        # A Kanvas takes the first free port, so one that is free ends the search. Checking it this way
+        # avoids connecting to closed ports, which takes seconds on Windows.
+        if port_free(host, p):
+            return None
+        try:
+            with LOCAL.open(f"http://{host}:{p}/api/boards", timeout=1) as r:
+                info = json.loads(r.read().decode("utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(info, dict) and isinstance(info.get("kanvas"), str):
+            return f"http://{host}:{p}/", info["kanvas"]
+    return None
+
+
+def join_running(url, path):
+    """Open the board at `path` in the Kanvas running at `url`; return the board's URL there."""
+    body = json.dumps({"path": os.path.abspath(path)}).encode("utf-8")
+    req = urllib.request.Request(url + "api/boards", body, {"Content-Type": "application/json"}, method="POST")
+    try:
+        with LOCAL.open(req, timeout=5) as r:
+            return url + json.loads(r.read().decode("utf-8"))["url"].lstrip("/")
+    except urllib.error.HTTPError as e:
+        try:
+            message = json.loads(e.read().decode("utf-8"))["error"]
+        except (ValueError, KeyError, OSError):
+            message = str(e)
+        raise KanvasError(f"The Kanvas running at {url} did not open the board: {message}")
+    except (OSError, ValueError, KeyError) as e:
+        raise KanvasError(f"The Kanvas running at {url} did not answer: {e}")
 
 
 def offer_board():
@@ -1645,17 +1813,32 @@ def cmd_serve(args):
             raise
     if not os.path.isfile(HTML_FILE):
         raise KanvasError("kanvas.html is missing next to kanvas.py")
+    # One Kanvas serves the boards of every project; a second `serve` hands its board to it and returns.
+    running = find_running(args.port, args.host) if args.port and args.host in ("127.0.0.1", "localhost") else None
+    if running:
+        url, version = running
+        board_url = join_running(url, path)
+        print(f"Kanvas board: {path}")
+        if hint := agent_copy_hint(path):
+            print(hint)
+        print(f"Opened in the Kanvas already running: {board_url}")
+        if version != VERSION:
+            print(f"That Kanvas is {version} and this command is {VERSION}; to switch, stop it (Ctrl+C in its terminal) and run `kanvas serve` again.")
+        if not args.no_open:
+            webbrowser.open(board_url)
+        return
     server = start_server(path, args.host, args.port)
     host, port = server.server_address[:2]
-    url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}/"
+    board_url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}/{quote(server.add_board(path))}/"
     print(f"Kanvas board: {path}")
     if hint := agent_copy_hint(path):
         print(hint)
-    print(f"Open {url}  (Ctrl+C to stop)")
+    print(f"Open {board_url}  (Ctrl+C to stop)")
+    print("Boards of other projects open here too: run `kanvas serve` in them.")
     if not server.check_host:
         print("Warning: listening beyond localhost; anyone who can reach this port can edit the board.")
     if not args.no_open:
-        threading.Timer(0.4, webbrowser.open, (url,)).start()
+        threading.Timer(0.4, webbrowser.open, (board_url,)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

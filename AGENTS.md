@@ -13,7 +13,7 @@ Kanvas is a task board shared by humans and AI agents. This file is for agents a
 | `tests/test_kanvas.py` | Test suite (`unittest`) |
 | `tests/layout_stats.py`, `tests/fixtures/` | Graph clutter measurements and the boards they run on |
 | `pyproject.toml` | The `kanvas-board` package, which installs the `kanvas` command. Its version comes from `VERSION` in `kanvas.py`, and the `VERSION` file must match. hatchling and hatch-fancy-pypi-readme, which points the README's relative links at GitHub for PyPI, are needed only to build it |
-| `tests/check_installed.py` | Runs an installed `kanvas` command through `init`, subfolders, `export`, `serve` and the project copy |
+| `tests/check_installed.py` | Runs an installed `kanvas` command through `init`, subfolders, `export`, `serve` (with a second project joining it) and the project copy |
 
 ## Rules
 
@@ -61,5 +61,5 @@ Set the version in `kanvas.py` (`VERSION = "..."`) and in the `VERSION` file, th
 ## Cursor Cloud specific instructions
 
 - Python 3 and Node.js are preinstalled; no setup step is needed.
-- Run long-lived `kanvas.py serve` processes in tmux with `--no-open`, and use `--port` to avoid clashes with a server that is already running.
-- Headless Chrome (`google-chrome --headless=new`) works for screenshots of `http://127.0.0.1:<port>/`.
+- Run long-lived `kanvas.py serve` processes in tmux with `--no-open`, and use `--port` to keep test boards out of a Kanvas that is already running: `serve` opens its board in any Kanvas it finds on that port or the 19 after it.
+- Headless Chrome (`google-chrome --headless=new`) works for screenshots of `http://127.0.0.1:<port>/<folder>/`.

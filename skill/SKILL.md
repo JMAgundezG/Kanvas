@@ -13,7 +13,7 @@ The board is `kanvas.json` at the project root. Change it only through the CLI i
 python .agents/skills/kanvas/kanvas.py <command>
 ```
 
-Use `python3` where `python` is missing. Never edit `kanvas.json` by hand. The human watches the board in a browser, where your changes appear within a second. It opens with `kanvas serve` when Kanvas is installed, or `python .agents/skills/kanvas/kanvas.py serve`.
+Use `python3` where `python` is missing. Never edit `kanvas.json` by hand. The human watches the board in a browser, where your changes appear within a second. It opens with `kanvas serve` when Kanvas is installed, or `python .agents/skills/kanvas/kanvas.py serve`. When Kanvas already runs for another project, this opens the board there and returns at once; otherwise it keeps running until stopped.
 
 ## Workflow
 

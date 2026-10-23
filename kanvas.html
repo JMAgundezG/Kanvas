@@ -385,10 +385,12 @@ body.picking .card { cursor: pointer; }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; align-items: center; }
 .ctx-menu { position: fixed; z-index: 40; min-width: 210px; max-width: 340px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; font-size: 13px; animation: enter .12s ease-out; }
 .ctx-menu:focus { outline: none; }
-.ctx-menu button { width: 100%; min-width: 0; justify-content: flex-start; gap: 9px; padding: 6px 9px; border: 0; border-radius: 4px; background: transparent; text-align: left; }
-.ctx-menu button:hover, .ctx-menu button:focus-visible { background: var(--surface-2); outline: none; }
-.ctx-menu button:focus-visible, .ctx-menu.dpop .track > button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: -2px; }
-.ctx-menu button .icon { color: var(--muted); }
+.ctx-menu a.item { display: flex; align-items: center; color: inherit; text-decoration: none; }
+.ctx-menu :is(button, a.item) { width: 100%; min-width: 0; justify-content: flex-start; gap: 9px; padding: 6px 9px; border: 0; border-radius: 4px; background: transparent; text-align: left; }
+.ctx-menu :is(button, a.item):hover, .ctx-menu :is(button, a.item):focus-visible { background: var(--surface-2); outline: none; }
+.ctx-menu :is(button, a.item):focus-visible, .ctx-menu.dpop .track > button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: -2px; }
+.ctx-menu :is(button, a.item) .icon { color: var(--muted); }
+.ctx-menu .lbl small { margin-left: 8px; font-size: 11.5px; color: var(--faint); }
 .ctx-menu button.danger .icon { color: inherit; }
 .ctx-menu .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ctx-menu .lbl .cid { margin-right: 6px; }
@@ -3222,7 +3224,7 @@ function groupsDialog() {
 }
 
 function helpDialog() {
-  const keys = [["N", "New task"], ["/", "Filter tasks"], ["G / B", "Graph or board view"], ["L", "Graph left to right or top to bottom"], ["M", "Automatic layout, or order cards and groups yourself by dragging them"], ["H", "Hide or show finished tasks"], ["F", "Fit the graph to the screen"], ["+ / -", "Zoom"], ["[ / ]", "Compress or extend the graph"], ["← / ↑ / ↓ / →", "Select the next card in that direction"], ["Enter", "Move into the selected task's panel, where Tab goes round its controls"], ["Esc", "Leave the panel, close it, or clear the filter"], ["Right-click", "Actions for a card, a dependency or empty space"], ["Ctrl+Z", "Undo your last change"], ["Ctrl+Shift+Z / Ctrl+Y", "Redo"], ["Ctrl+Enter", "Save the text you are editing"]];
+  const keys = [["N", "New task"], ["/", "Filter tasks"], ["G / B", "Graph or board view"], ["L", "Graph left to right or top to bottom"], ["M", "Automatic layout, or order cards and groups yourself by dragging them"], ["H", "Hide or show finished tasks"], ["F", "Fit the graph to the screen"], ["+ / -", "Zoom"], ["[ / ]", "Compress or extend the graph"], ["← / ↑ / ↓ / →", "Select the next card in that direction"], ["Shift+← / Shift+→", "Previous or next open board"], ["Enter", "Move into the selected task's panel, where Tab goes round its controls"], ["Esc", "Leave the panel, close it, or clear the filter"], ["Right-click", "Actions for a card, a dependency or empty space"], ["Ctrl+Z", "Undo your last change"], ["Ctrl+Shift+Z / Ctrl+Y", "Redo"], ["Ctrl+Enter", "Save the text you are editing"]];
   modal("Keyboard shortcuts", [
     h("div", { class: "keys" }, keys.map(([k, v]) => [h("span", {}, k.split(" / ").map((x, i) => [i ? " / " : "", h("kbd", {}, x)])), h("span", {}, v)])),
     h("p", {}, "In the graph, drag a dot on a card's edge onto another card to add a dependency, and click an arrow to remove it. Scroll to pan, Ctrl+scroll to zoom."),
@@ -3263,11 +3265,15 @@ function openMenu(x, y, items, target, { alignRight = false, role = "menu", labe
     if (it === "sep") return h("div", { class: "sep", role: "separator" });
     if (it.head) return h("div", { class: "ctx-head" }, it.head);
     if (it.node) return it.node;
+    if (it.href) {
+      const go = (e) => { if (e.button || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); closeMenu(); it.run(); };
+      return h("a", { role: "menuitem", class: "item", href: it.href, onclick: go }, icon(it.icon), h("span", { class: "lbl" }, it.label));
+    }
     return h("button", { role: "menuitem", class: it.danger ? "danger" : null, onclick: () => { closeMenu(true); it.run(); } }, icon(it.icon), h("span", { class: "lbl" }, it.label));
   }));
   menuEl.addEventListener("keydown", (e) => {
     e.stopPropagation();
-    const controls = [...menuEl.querySelectorAll("button:not([disabled]), input")];
+    const controls = [...menuEl.querySelectorAll("button:not([disabled]), input, a[href]")];
     const n = controls.length, i = controls.indexOf(document.activeElement);
     const move = (d) => { e.preventDefault(); if (n) controls[i < 0 ? (d > 0 ? 0 : n - 1) : (i + d + n) % n].focus(); };
     if (e.key === "Escape") { e.preventDefault(); closeMenu(true); }
@@ -3294,9 +3300,42 @@ function dropdown(btn, items, { alignRight = false, cls = "", gap = 6, role = "m
   if (cls) menuEl.classList.add(cls);
 }
 
+// Boards ----------------------------------------------------------------------
+
+// One Kanvas serves every open board at an address of its own, /<name>/, so each can also have a tab.
+let openBoards = [];
+const boardHere = () => decodeURIComponent(location.pathname.split("/")[1] || "");
+const boardUrl = (b) => `/${encodeURIComponent(b.name)}/`;
+
+async function refreshBoards() {
+  if (store?.kind !== "server") return;
+  try {
+    const r = await fetch("/api/boards", { cache: "no-store" });
+    if (r.ok) openBoards = (await r.json()).boards || [];
+  } catch (e) { /* the sync status already shows a lost connection */ }
+}
+
+async function goToBoard(b) {
+  // A save still on its way would be cut off by leaving the page.
+  for (let i = 0; pending && i < 100; i++) await new Promise((r) => setTimeout(r, 50));
+  location.assign(boardUrl(b));
+}
+
+async function switchBoard(step) {
+  await refreshBoards();
+  const n = openBoards.length, i = openBoards.findIndex((b) => b.name === boardHere());
+  if (n < 2 || i < 0) return toast("No other board is open. Run kanvas serve in another project to open its board here too.");
+  goToBoard(openBoards[(i + step + n) % n]);
+}
+
 function boardMenu() {
   const keys = (k) => h("kbd", {}, k);
+  const boards = store.kind === "server" && openBoards.length > 1 ? openBoards : [];
+  const label = (b) => [b.title || b.name, b.title && b.title !== b.name ? h("small", {}, b.name) : null];
   return [
+    boards.length ? { head: "Open boards" } : null,
+    ...boards.map((b) => b.name === boardHere() ? { label: label(b), icon: "check", run: () => {} } : { label: label(b), icon: null, href: boardUrl(b), run: () => goToBoard(b) }),
+    boards.length ? "sep" : null,
     store.readOnly ? null : { label: "Rename board", icon: "edit", run: () => { ui.editingTitle = true; renderHeader(); } },
     store.readOnly ? null : { label: "Groups…", icon: "lanes", run: groupsDialog },
     "sep",
@@ -3668,6 +3707,11 @@ function setupChrome() {
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.closest("input, textarea, select, [contenteditable]")) return;
+    if (e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && store?.kind === "server") {
+      e.preventDefault();
+      switchBoard(e.key === "ArrowRight" ? 1 : -1);
+      return;
+    }
     if (e.key.startsWith("Arrow") && !e.shiftKey) {
       if (!picking && !menuEl) { e.preventDefault(); moveSelection(e.key); }
       return;
@@ -3777,6 +3821,9 @@ async function boot() {
   }
   if (!store) showWelcome();
   poll();
+  refreshBoards();
+  setInterval(() => { if (document.visibilityState === "visible") refreshBoards(); }, 5000);
+  addEventListener("focus", refreshBoards);
 }
 
 boot();

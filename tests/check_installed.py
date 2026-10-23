@@ -5,7 +5,7 @@
 
 COMMAND defaults to `kanvas` on PATH. In a fresh temporary project the script
 checks the version, the help, the error outside a board, `init`, commands run
-from a subfolder, `export`, `serve`, the copy of kanvas.py that `init` installs
+from a subfolder, `export`, `serve` (with a second project joining it), the copy of kanvas.py that `init` installs
 for agents, and the hint when that copy is out of date. It stops with exit
 code 1 at the first failure.
 """
@@ -69,7 +69,8 @@ def get(url):
         return response.read().decode("utf-8")
 
 
-def check_serve(kanvas, cwd, log_path):
+def check_serve(kanvas, cwd, log_path, other):
+    """Serve the project from `cwd`, then the one in `other`, which must open in the same Kanvas."""
     port = free_port()
     with open(log_path, "w", encoding="utf-8") as log:
         server = subprocess.Popen(kanvas + ["serve", "--no-open", "--port", str(port)],
@@ -78,7 +79,7 @@ def check_serve(kanvas, cwd, log_path):
         deadline = time.time() + 20
         while True:
             try:
-                board = json.loads(get(f"http://127.0.0.1:{port}/api/board"))
+                boards = json.loads(get(f"http://127.0.0.1:{port}/api/boards"))["boards"]
                 break
             except OSError as e:
                 if server.poll() is not None or time.time() > deadline:
@@ -87,9 +88,20 @@ def check_serve(kanvas, cwd, log_path):
                         raise CheckFailed(f"serve did not answer on port {port} ({state}); last error: {e!r}\n"
                                           f"serve printed:\n{f.read()}")
                 time.sleep(0.2)
+        base = f"http://127.0.0.1:{port}/{boards[0]['name']}/"
+        board = json.loads(get(base + "api/board"))
         if TITLE not in [t["title"] for t in board["tasks"]]:
             raise CheckFailed(f"serve returned a different board: {board}")
-        expect(get(f"http://127.0.0.1:{port}/"), "kanvas-snapshot", "the page from serve")
+        expect(get(base), "kanvas-snapshot", "the page from serve")
+        expect(get(f"http://127.0.0.1:{port}/"), "kanvas-snapshot", "the address serve starts at, with one board open")
+
+        out = run(kanvas + ["serve", "--no-open", "--port", str(port)], other)
+        expect(out, f"Opened in the Kanvas already running: http://127.0.0.1:{port}/{os.path.basename(other)}/", "serve in a second project")
+        boards = json.loads(get(f"http://127.0.0.1:{port}/api/boards"))["boards"]
+        if len(boards) != 2 or not os.path.samefile(boards[1]["path"], os.path.join(other, "kanvas.json")):
+            raise CheckFailed(f"the second project's board is not open: {boards}")
+        json.loads(get(f"http://127.0.0.1:{port}/{boards[1]['name']}/api/board"))
+        expect(get(f"http://127.0.0.1:{port}/"), boards[1]["name"], "the list of open boards")
     finally:
         server.terminate()
         try:
@@ -137,8 +149,13 @@ def check(kanvas, project):
         expect(f.read(), json.dumps(TITLE, ensure_ascii=False), "the exported snapshot")
     ok("export")
 
-    check_serve(kanvas, sub, os.path.join(project, "serve.log"))
-    ok("serve answers with the page and the board")
+    other = tempfile.mkdtemp(prefix="kanvas-second-")
+    try:
+        run(kanvas + ["init"], other)
+        check_serve(kanvas, sub, os.path.join(project, "serve.log"), other)
+    finally:
+        shutil.rmtree(other, ignore_errors=True)
+    ok("serve answers with the page and the board, and serve in a second project opens it in the same Kanvas")
 
     copy = os.path.join(project, ".agents", "skills", "kanvas", "kanvas.py")
     expect(run([sys.executable, copy, "status"], project), TITLE, "the project copy of kanvas.py")
