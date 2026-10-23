@@ -538,6 +538,7 @@ body.picking .card { cursor: pointer; }
     </div>
     <div class="zoombar">
       <label class="spread" data-tip="Spacing between dependency levels" data-key="[ ]"><input id="spread" type="range" min="30" max="500" step="10" aria-label="Spacing between dependency levels"></label>
+      <button id="zoom-fill" data-icon="fill" data-tip="Fill the screen: set the spacing and zoom so the whole graph is as large as fits" aria-label="Fill the screen"></button>
       <span class="zsep"></span>
       <button id="zoom-out" data-icon="minus" data-tip="Zoom out" data-key="−" aria-label="Zoom out"></button>
       <button id="zoom-pct" class="pct" data-tip="Zoom to 100%" aria-label="Zoom to 100%">100%</button>
@@ -585,6 +586,7 @@ const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  fill: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
   fit: '<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>',
   note: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
@@ -1471,6 +1473,7 @@ let writes = 0;         // saves started, so a poll that overlapped one is dropp
 let saveQueue = Promise.resolve();
 
 const LEVEL_GAP = { min: 30, max: 500 };
+const MAX_ZOOM = 2;
 const prefs = (() => {
   const defaults = { view: "graph", orient: "horizontal", arrange: "auto", hideDone: false, theme: null, levelGap: 70 };
   try { return Object.assign(defaults, JSON.parse(localStorage.getItem("kanvas:prefs") || "{}")); } catch (e) { return defaults; }
@@ -2205,19 +2208,49 @@ function applyView(animate) {
   if (animate) setTimeout(() => world.classList.remove("animate"), 350);
 }
 
-function fit(animate = true) {
-  if (!lastLayout) return;
+// Room for the graph on screen, clear of the zoom bar and with a margin.
+function fitRoom() {
   const vp = $("#viewport").getBoundingClientRect();
+  return { vp, usable: vp.height - 44, w: vp.width - 48, h: vp.height - 44 - 48 };
+}
+
+function fit(animate = true, maxZoom = 1) {
+  if (!lastLayout) return;
+  const { vp, usable, w, h } = fitRoom();
   const W = lastLayout.width || 1, H = lastLayout.height || 1;
-  const usable = vp.height - 44; // keep clear of the zoom bar
-  view.k = clamp(Math.min((vp.width - 48) / W, (usable - 48) / H, 1), 0.25, 1);
+  view.k = clamp(Math.min(w / W, h / H, maxZoom), 0.25, maxZoom);
   view.x = Math.max(24, (vp.width - W * view.k) / 2);
   view.y = Math.max(24, (usable - H * view.k) / 2);
   applyView(animate);
 }
 
+// Picks the spacing at which the whole graph shows largest, then zooms to it. Of the spacings that
+// show it equally large, the widest wins, so arrows get the most room.
+function fillScreen() {
+  const tasks = board.tasks.filter((t) => !(prefs.hideDone && t.state === "done"));
+  if (!tasks.length) return fit(true);
+  const opts = { vertical: prefs.orient === "vertical", manual: prefs.arrange === "manual" };
+  // Size grows in step with the spacing, so two layouts tell it for every spacing.
+  const a = layout(tasks, board, { ...opts, levelGap: LEVEL_GAP.min }), b = layout(tasks, board, { ...opts, levelGap: LEVEL_GAP.max });
+  const { w, h } = fitRoom(), span = LEVEL_GAP.max - LEVEL_GAP.min;
+  const zoomAtGap = (gap) => {
+    const f = (gap - LEVEL_GAP.min) / span;
+    return Math.min(w / (a.width + (b.width - a.width) * f), h / (a.height + (b.height - a.height) * f), MAX_ZOOM);
+  };
+  let best = LEVEL_GAP.min, bestK = zoomAtGap(best);
+  for (let gap = LEVEL_GAP.min + 10; gap <= LEVEL_GAP.max; gap += 10) {
+    const k = zoomAtGap(gap);
+    if (k >= bestK * 0.995) { best = gap; bestK = Math.max(k, bestK); }
+  }
+  prefs.levelGap = best;
+  $("#spread").value = best;
+  savePrefs();
+  render();
+  fit(true, MAX_ZOOM);
+}
+
 function zoomAt(factor, cx, cy) {
-  const k = clamp(view.k * factor, 0.2, 2);
+  const k = clamp(view.k * factor, 0.2, MAX_ZOOM);
   const wx = (cx - view.x) / view.k, wy = (cy - view.y) / view.k;
   view.k = k;
   view.x = cx - wx * k;
@@ -2455,6 +2488,7 @@ function setupGraphInput() {
   $("#zoom-in").onclick = () => { const r = vp.getBoundingClientRect(); zoomAt(1.2, r.width / 2, r.height / 2); };
   $("#zoom-out").onclick = () => { const r = vp.getBoundingClientRect(); zoomAt(1 / 1.2, r.width / 2, r.height / 2); };
   $("#zoom-fit").onclick = () => fit(true);
+  $("#zoom-fill").onclick = fillScreen;
   $("#zoom-pct").onclick = () => { const r = vp.getBoundingClientRect(); zoomAt(1 / view.k, r.width / 2, r.height / 2); };
 }
 
