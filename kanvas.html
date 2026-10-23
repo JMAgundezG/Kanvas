@@ -202,7 +202,8 @@ button.yolo-go, button.yolo-go:hover { border: 0; color: var(--yolo-ink); font-w
 .card.flash { animation: flash 1.6s ease-out; }
 @keyframes enter { from { opacity: 0; scale: .94; } }
 @keyframes flash { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 85%, transparent); scale: 1.04; } 25% { scale: 1; } 60% { box-shadow: 0 0 0 14px transparent; } }
-.zoombar { position: absolute; right: 14px; bottom: 14px; display: flex; align-items: center; gap: 1px; padding: 3px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); z-index: 2; }
+.zoombar { position: absolute; right: 14px; bottom: 14px; display: flex; align-items: center; gap: 1px; padding: 3px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); z-index: 2; transition: opacity .2s; }
+@media (hover: hover) { .zoombar:not(:hover, :has(:focus-visible, :active)) { opacity: .3; } }
 .zoombar button { height: 28px; min-width: 28px; justify-content: center; padding: 0 5px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); }
 .zoombar button:hover { background: var(--surface-2); color: var(--text); }
 .zoombar .pct { min-width: 50px; font: 12px var(--mono); font-variant-numeric: tabular-nums; }
@@ -555,7 +556,7 @@ body.picking .card { cursor: pointer; }
   dialog.dlg { width: calc(100vw - 16px); max-width: none; max-height: calc(var(--vv-height, 100dvh) - 16px); margin: calc(var(--vv-top, 0px) + 8px) auto auto; }
   .dlg form { padding: 14px 14px 0; }
   .dlg-actions { position: sticky; bottom: 0; margin: 0 -14px; padding: 10px 14px; background: var(--surface); border-top: 1px solid var(--border); }
-  .ctx-menu { max-width: calc(100vw - 8px); max-height: calc(var(--vv-height, 100dvh) - 8px); overflow-y: auto; }
+  .ctx-menu, .ctx-menu.dpop { max-width: calc(100vw - 8px); max-height: calc(var(--vv-height, 100dvh) - 8px); overflow-y: auto; }
   .pick-bar { top: 8px; left: 8px; right: 8px; translate: none; flex-wrap: wrap; white-space: normal; }
   .pick-bar .hint { display: none; }
 }
@@ -3375,10 +3376,10 @@ function closeMenu(refocus = false) {
 
 // Items are { label, icon, run, danger }, { head }, { node } or "sep". With alignRight, x is the menu's right edge.
 // A "dialog" holds other controls than menu items: Tab moves between them instead of closing it.
-function openMenu(x, y, items, target, { alignRight = false, role = "menu", label = null } = {}) {
+function openMenu(x, y, items, target, { alignRight = false, role = "menu", label = null, cls = "" } = {}) {
   closeMenu();
   const list = items.filter(Boolean).filter((it, i, all) => !(it === "sep" && (i === 0 || i === all.length - 1 || all[i - 1] === "sep")));
-  menuEl = h("div", { class: "ctx-menu", role, tabindex: "-1", "aria-label": label }, list.map((it) => {
+  menuEl = h("div", { class: `ctx-menu ${cls}`.trim(), role, tabindex: "-1", "aria-label": label }, list.map((it) => {
     if (it === "sep") return h("div", { class: "sep", role: "separator" });
     if (it.head) return h("div", { class: "ctx-head" }, it.head);
     if (it.node) return it.node;
@@ -3399,7 +3400,8 @@ function openMenu(x, y, items, target, { alignRight = false, role = "menu", labe
   });
   menuEl.addEventListener("contextmenu", (e) => e.preventDefault());
   document.body.append(menuEl);
-  const r = menuEl.getBoundingClientRect();
+  // Offset sizes leave out the scale of the opening animation.
+  const r = { width: menuEl.offsetWidth, height: menuEl.offsetHeight };
   menuEl.style.left = `${Math.max(4, Math.min(alignRight ? x - r.width : x, innerWidth - r.width - 4))}px`;
   menuEl.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 4))}px`;
   if (target) {
@@ -3413,8 +3415,7 @@ function openMenu(x, y, items, target, { alignRight = false, role = "menu", labe
 function dropdown(btn, items, { alignRight = false, cls = "", gap = 6, role = "menu", label = null } = {}) {
   if (menuClosed.el === btn && Date.now() - menuClosed.at < 400) return;
   const r = btn.getBoundingClientRect();
-  openMenu(alignRight ? r.right : r.left, r.bottom + gap, items, btn, { alignRight, role, label });
-  if (cls) menuEl.classList.add(cls);
+  openMenu(alignRight ? r.right : r.left, r.bottom + gap, items, btn, { alignRight, role, label, cls });
 }
 
 // Boards ----------------------------------------------------------------------
