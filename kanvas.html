@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <meta name="color-scheme" content="light dark">
 <title>Kanvas</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='2' y='2' width='60' height='60' rx='15' fill='%2323272f'/%3E%3Cg transform='translate(9.6 9.6) scale(.7)'%3E%3Cpath d='M19 14V50M46 14L28 32L46 50' fill='none' stroke='%23efece6' stroke-width='6.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M37.5 13H47V22.5ZM37.5 51H47V41.5Z' fill='%23efece6' stroke='%23efece6' stroke-width='4' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E">
@@ -240,6 +240,7 @@ button.yolo-go, button.yolo-go:hover { border: 0; color: var(--yolo-ink); font-w
 .p-head .cid { padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); font-size: 12.5px; line-height: 1.3; cursor: copy; }
 .p-head .cid:hover { border-color: var(--border-strong); background: var(--surface-2); }
 .p-head .badge { font-size: 12px; padding: 3px 7px; }
+.p-back { display: none; }
 .pick { gap: 3px; padding: 3px 4px 3px 8px; border-radius: 4px; font-size: 12px; line-height: 1.3; }
 .pick .icon svg { width: 13px; height: 13px; }
 .pick.badge { border: 0; }
@@ -434,6 +435,13 @@ body.picking .card { cursor: pointer; }
 .welcome-card { max-width: 480px; width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 30px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 14px; }
 .welcome-card h1 { margin: 0; font-size: 22px; display: flex; align-items: center; gap: 10px; }
 .welcome-card h1 .logo { width: 42px; height: 42px; }
+.phone { max-width: 380px; }
+.phone > button { margin-top: 4px; }
+.phone-qr svg { display: block; width: 220px; height: 220px; margin: 4px auto 14px; border-radius: 10px; }
+.phone-url { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.phone-url code { flex: 1; min-width: 0; overflow-wrap: anywhere; font: 12px var(--mono); }
+.phone-note { color: var(--muted); font-size: 12.5px; }
+.phone-error { color: #dc2626; }
 .welcome-card p { margin: 0; color: var(--muted); }
 .welcome-card .drop { border: 1.5px dashed var(--border-strong); border-radius: 8px; padding: 18px; text-align: center; color: var(--muted); }
 .welcome-card code { font: 12.5px var(--mono); background: var(--surface-2); padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border); }
@@ -480,6 +488,76 @@ body.picking .card { cursor: pointer; }
 }
 @media (max-width: 900px) {
   #panel { position: absolute; inset: 0 auto 0 0; width: min(430px, 100%); box-shadow: var(--shadow-lg); }
+}
+
+/* Touch: fingers need targets of 40px, and Safari zooms into text fields under 16px. */
+@media (max-width: 640px), (pointer: coarse) {
+  input, select, textarea, .title-input, .note-edit textarea, .dlg .field :is(input, select, textarea), .dlg .pick-box input { font-size: 16px; }
+  header.top :is(button, .search input), header.top > .tools > button, header.top > #help, .board-title, .title-input { height: 40px; }
+  header.top .icon-btn, #new-task, #display { min-width: 40px; justify-content: center; }
+  header.top .track { padding: 1px; }
+  header.top .track > button { height: 38px; min-width: 38px; justify-content: center; }
+  :is(.p-head, .now-actions, .now-yolo, .row-end, .section-head, .dlg-actions, .col-head, .pick-bar, .welcome-card, .banner, .group-row, .group-new) button, button.add-line, .dlg .field :is(input, select) { min-height: 40px; }
+  .p-head .icon-btn, .p-back, .group-row .btns button { min-width: 40px; justify-content: center; }
+  .zoombar button { height: 40px; min-width: 40px; }
+  .ctx-menu :is(button, a.item), .pick-opt, .dep, .dlg .check { min-height: 40px; }
+  .dep { padding-block: 0; }
+  .ctx-menu.dpop .track > button { height: 38px; }
+  .dep button { align-self: stretch; min-width: 40px; margin-right: -6px; justify-content: center; }
+  .note-meta .note-btn { top: -10px; right: -10px; padding: 13px; }
+  .pick-chip button { min-width: 32px; min-height: 32px; justify-content: center; }
+  .toast button.link { min-height: 40px; }
+}
+@media (hover: none) {
+  .dep button, .note-btn { opacity: 1; }
+}
+
+/* Phones: a two-row header, the task panel over the whole screen, columns one screen wide. */
+@media (max-width: 640px), (max-height: 480px) and (pointer: coarse) {
+  header.top { gap: 0 4px; padding: 6px 8px; }
+  header.top > .tools { display: contents; }
+  .brand { order: 1; flex: 1 1 0; min-width: 0; }
+  .brand > .sync { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+  .sync .label { overflow: hidden; text-overflow: ellipsis; }
+  .meter { display: none; }
+  .board-title { max-width: 100%; }
+  .title-input { width: 100%; }
+  .seg { order: 2; }
+  #display { order: 3; padding: 0; }
+  #display .icon:last-child { display: none; }
+  #new-task { order: 4; padding: 0; }
+  header.top > .spacer { order: 5; flex: 0 0 100%; height: 6px; }
+  #chips { order: 6; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  #chips > .schip { flex: 1 0 auto; min-width: 34px; padding: 0 6px; }
+  #yolo-chip { order: 7; }
+  .search { order: 8; flex: 0 0 40px; }
+  .search input { width: 100%; padding: 0 8px 0 30px; }
+  .search .sicon { left: 12px; }
+  .search input:placeholder-shown:not(:focus)::placeholder { color: transparent; }
+  .search:focus-within, .search:has(input:not(:placeholder-shown)) { flex: 1 1 120px; }
+  header.top:has(.search input:focus) :is(#chips, #yolo-chip, #undo, #redo) { display: none; }
+  #undo { order: 9; }
+  #redo { order: 10; }
+
+  #panel { position: fixed; inset: 0; width: auto; z-index: 15; border: 0; box-shadow: none; }
+  body.picking #panel { display: none; }
+  .p-head { gap: 4px; padding: 6px 8px; }
+  .p-head .p-back { display: inline-flex; margin-right: 2px; }
+  .p-head .p-close { display: none; }
+  .p-head .gpick { min-width: 0; overflow: hidden; }
+  .p-body { padding: 14px 14px 28px; }
+
+  #kanban { gap: 10px; padding: 10px; scroll-snap-type: x mandatory; scroll-padding: 10px; }
+  .col { flex: 0 0 min(340px, calc(100vw - 44px)); max-width: none; scroll-snap-align: start; }
+  .zoombar { right: 10px; bottom: 10px; }
+  .zoombar .spread { display: none; }
+
+  dialog.dlg { width: calc(100vw - 16px); max-width: none; max-height: calc(var(--vv-height, 100dvh) - 16px); margin: calc(var(--vv-top, 0px) + 8px) auto auto; }
+  .dlg form { padding: 14px 14px 0; }
+  .dlg-actions { position: sticky; bottom: 0; margin: 0 -14px; padding: 10px 14px; background: var(--surface); border-top: 1px solid var(--border); }
+  .ctx-menu { max-width: calc(100vw - 8px); max-height: calc(var(--vv-height, 100dvh) - 8px); overflow-y: auto; }
+  .pick-bar { top: 8px; left: 8px; right: 8px; translate: none; flex-wrap: wrap; white-space: normal; }
+  .pick-bar .hint { display: none; }
 }
 </style>
 </head>
@@ -584,6 +662,7 @@ const ICONS = {
   keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8 14h8"/>',
   contrast: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/>',
   right: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  left: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
   sort: '<path d="M4 6h9M4 12h6M4 18h3M17 5v14M14 16l3 3 3-3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
@@ -610,6 +689,7 @@ const ICONS = {
   down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>',
+  phone: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18h2"/>',
   open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   unlink: '<path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 1.5 9.8M8 12h3M3 3l18 18"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
@@ -1476,13 +1556,17 @@ let saveQueue = Promise.resolve();
 
 const LEVEL_GAP = { min: 30, max: 500 };
 const MAX_ZOOM = 2;
+// Phone-sized screens, in portrait or landscape. Keep in step with the media queries of the phone layout.
+const phone = matchMedia("(max-width: 640px), (max-height: 480px) and (pointer: coarse)");
+// The view chosen on wider screens, and the one chosen on phones, which start on the board.
 const prefs = (() => {
-  const defaults = { view: "graph", orient: "horizontal", arrange: "auto", hideDone: false, theme: null, levelGap: 70 };
+  const defaults = { view: "graph", phoneView: "board", orient: "horizontal", arrange: "auto", hideDone: false, theme: null, levelGap: 70 };
   try { return Object.assign(defaults, JSON.parse(localStorage.getItem("kanvas:prefs") || "{}")); } catch (e) { return defaults; }
 })();
 const savePrefs = () => { try { localStorage.setItem("kanvas:prefs", JSON.stringify(prefs)); } catch (e) { /* storage disabled */ } };
 
-const ui = { selected: null, search: "", states: new Set(), hover: null, link: null, editingDesc: false, focusDesc: false, editingNote: null, focusNote: false, panelStale: false, editingTitle: false };
+const viewPref = () => (phone.matches ? "phoneView" : "view");
+const ui = { view: prefs[viewPref()], selected: null, search: "", states: new Set(), hover: null, link: null, editingDesc: false, focusDesc: false, editingNote: null, focusNote: false, panelStale: false, editingTitle: false };
 // Unsaved text in the panel survives re-renders caused by agent changes.
 // descBase is the description as it was when editing began, to notice an agent changing it meanwhile.
 const drafts = { desc: null, descBase: null, note: new Map(), noteEdit: null };
@@ -1925,10 +2009,10 @@ function render() {
   if (!board) return;
   renderHeader();
   renderProblems();
-  $("#graph-view").hidden = prefs.view !== "graph";
-  $("#board-view").hidden = prefs.view !== "board";
+  $("#graph-view").hidden = ui.view !== "graph";
+  $("#board-view").hidden = ui.view !== "board";
   renderPanel();
-  if (prefs.view === "graph") renderGraph();
+  if (ui.view === "graph") renderGraph();
   else renderKanban();
   if (picking) applyPick();
 }
@@ -1997,8 +2081,8 @@ function renderHeader() {
   }
   for (const v of ["graph", "board"]) {
     const btn = $(`#view-${v}`);
-    btn.classList.toggle("on", prefs.view === v);
-    btn.setAttribute("aria-pressed", prefs.view === v ? "true" : "false");
+    btn.classList.toggle("on", ui.view === v);
+    btn.setAttribute("aria-pressed", ui.view === v ? "true" : "false");
   }
 }
 
@@ -2311,7 +2395,7 @@ function zoomAt(factor, cx, cy) {
 
 function reveal(id, animate = true) {
   const p = lastLayout && lastLayout.pos.get(key(id));
-  if (!p || prefs.view !== "graph") return;
+  if (!p || ui.view !== "graph") return;
   const vp = $("#viewport").getBoundingClientRect(), panel = $("#panel");
   const left = !panel.hidden && getComputedStyle(panel).position === "absolute" ? panel.offsetWidth : 0;
   const sx = view.x + p.x * view.k, sy = view.y + p.y * view.k;
@@ -2325,7 +2409,7 @@ function reveal(id, animate = true) {
 // direction; sideways distance counts double. With nothing selected they start from the card
 // nearest the middle of the view.
 function moveSelection(arrow) {
-  const graph = prefs.view === "graph";
+  const graph = ui.view === "graph";
   const cards = (graph ? [...cardEls.values()].filter((el) => !el.classList.contains("dim")) : [...document.querySelectorAll("#kanban .kcard")])
     .map((el) => { const r = el.getBoundingClientRect(); return { id: el.dataset.id, r, x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
   const nearest = (list, cost) => list.reduce((best, c) => (best && cost(best) <= cost(c) ? best : c), null);
@@ -2592,14 +2676,18 @@ function kanbanCard(t) {
 
 // Detail panel ---------------------------------------------------------------
 
+// On phones the panel covers the board, so opening it adds a history entry and the phone's back gesture closes it.
 function select(id) {
-  const t = id ? get(id) : null;
+  const t = id ? get(id) : null, was = ui.selected;
   ui.selected = t ? t.id : null;
   ui.editingDesc = false;
   drafts.desc = drafts.descBase = null;
   ui.editingNote = null;
   drafts.noteEdit = null;
-  history.replaceState(null, "", ui.selected ? `#${encodeURIComponent(ui.selected)}` : location.pathname + location.search);
+  const url = ui.selected ? `#${encodeURIComponent(ui.selected)}` : location.pathname + location.search;
+  if (!was && ui.selected && phone.matches) history.pushState({ panel: true }, "", url);
+  else if (was && !ui.selected && history.state?.panel) history.back();
+  else history.replaceState(history.state, "", url);
   render();
   if (ui.selected) reveal(ui.selected);
 }
@@ -2676,7 +2764,7 @@ function showPanel(panel, open) {
   const closing = open ? 0 : panel.offsetWidth;
   panel.hidden = !open;
   const moved = open ? panel.offsetWidth : -closing;
-  if (moved && getComputedStyle(panel).position !== "absolute") { view.x -= moved; applyView(false); }
+  if (moved && getComputedStyle(panel).position === "static") { view.x -= moved; applyView(false); }
 }
 
 const tabbables = (root) => [...root.querySelectorAll("a[href], button, input, textarea, select, [tabindex]")]
@@ -2727,6 +2815,7 @@ function fillPanel(panel, t) {
   const gColor = g ? GROUP_COLORS[board.groups.indexOf(g) % GROUP_COLORS.length] : "var(--border-strong)";
   const below = (fn, right) => (e) => dropdown(e.currentTarget, fn(), { alignRight: right, gap: 4 });
   const head = h("div", { class: "p-head" },
+    h("button", { class: "ghost p-back", "aria-label": `Back to the ${ui.view}`, onclick: () => select(null) }, icon("left")),
     h("button", { class: "cid", title: "Copy ID", onclick: () => copy(t.id) }, t.id),
     ro ? h("span", { class: `badge s-${vs}` }, LABEL[vs])
       : h("button", { class: `pick badge s-${vs}`, title: "Change the state", "aria-haspopup": "menu", "aria-expanded": "false", onclick: below(() => stateMenu(t)) }, LABEL[vs], icon("chevron")),
@@ -2734,7 +2823,7 @@ function fillPanel(panel, t) {
       : h("button", { class: "gpick pick", title: "Change the group", "aria-haspopup": "menu", "aria-expanded": "false", onclick: below(() => groupMenu(t)) }, h("i", { style: `--g:${gColor}` }), g ? g.name : "No group", icon("chevron")),
     h("span", { class: "spacer" }),
     h("button", { class: "ghost icon-btn", title: "More", "aria-label": "More actions", "aria-haspopup": "menu", "aria-expanded": "false", onclick: below(() => panelMenu(t), true) }, icon("more")),
-    h("button", { class: "ghost icon-btn", title: "Close (Esc)", "aria-label": "Close", onclick: () => select(null) }, icon("x")));
+    h("button", { class: "ghost icon-btn p-close", title: "Close (Esc)", "aria-label": "Close", onclick: () => select(null) }, icon("x")));
 
   let desc;
   if (ui.editingDesc && !ro) {
@@ -2965,6 +3054,33 @@ function modal(title, content, { ok = "Save", danger = false, cancel = "Cancel",
   });
 }
 
+// The board's address for phones on Tailscale, as a QR code; opens Kanvas to phones first if needed.
+function phoneDialog() {
+  const body = h("div", { class: "phone" });
+  const port = location.port || "80";
+  const fail = (e) => body.replaceChildren(h("p", { class: "phone-error" }, e.message));
+  const ask = (method) => fetch("api/phone", method === "POST" ? { method, headers: { "Content-Type": "application/json" }, body: "{}" } : { cache: "no-store" })
+    .then(async (r) => { const info = await r.json(); if (!r.ok) throw new Error(info.error || `Error ${r.status}`); return info; });
+  const show = (info) => {
+    if (!info.urls.length) {
+      const open = h("button", { type: "button", class: "primary", onclick: () => { open.disabled = true; open.textContent = "Opening…"; ask("POST").then(show, fail); } }, icon("phone"), "Open to my phone");
+      body.replaceChildren(
+        h("p", {}, "Your phone can open this board through Tailscale, the private network between your own devices. Nobody outside it can reach Kanvas."),
+        open);
+      return;
+    }
+    const qr = h("div", { class: "phone-qr", role: "img", "aria-label": `QR code of ${info.urls[0]}` });
+    qr.innerHTML = info.qr;
+    body.replaceChildren(qr,
+      h("p", {}, "Scan it with your phone's camera. The phone needs the Tailscale app, signed in to the same account."),
+      ...info.urls.map((u) => h("div", { class: "phone-url" }, h("code", {}, u), h("button", { type: "button", onclick: () => copy(u) }, icon("copy"), "Copy"))),
+      h("p", { class: "phone-note" }, `Anyone on your Tailscale network can open and edit your boards. If the phone cannot connect, allow port ${port} for Tailscale in this computer's firewall.`));
+  };
+  body.append(h("p", {}, "Loading…"));
+  ask("GET").then(show, fail);
+  modal("Open on your phone", body, { ok: "Close", cancel: null });
+}
+
 // Multi-select of tasks: chips for the chosen ones above a filtered list, or
 // clicks on the graph. `reason(t)` explains why t cannot be chosen, or returns null.
 function taskPicker({ chosen = [], placeholder, label, prompt, reason = () => null }) {
@@ -3053,7 +3169,7 @@ function taskPicker({ chosen = [], placeholder, label, prompt, reason = () => nu
 let picking = null;
 
 function pickOnGraph(picker, dlg) {
-  const view = prefs.view;
+  const view = ui.view;
   dlg.dataset.paused = "1";
   dlg.close();
   closeMenu();
@@ -3071,7 +3187,7 @@ function pickOnGraph(picker, dlg) {
       picking = null;
       bar.remove();
       document.body.classList.remove("picking");
-      if (prefs.view !== view) setView(view); else applyPick();
+      if (ui.view !== view) setView(view, false); else applyPick();
       delete dlg.dataset.paused;
       dlg.showModal();
     },
@@ -3079,7 +3195,7 @@ function pickOnGraph(picker, dlg) {
   document.body.append(bar);
   document.body.classList.add("picking");
   ui.hover = null;
-  if (view !== "graph") setView("graph"); else { applyFocus(); applyPick(); }
+  if (view !== "graph") setView("graph", false); else { applyFocus(); applyPick(); }
 }
 
 function pickToggle(id) {
@@ -3338,6 +3454,7 @@ function boardMenu() {
     boards.length ? "sep" : null,
     store.readOnly ? null : { label: "Rename board", icon: "edit", run: () => { ui.editingTitle = true; renderHeader(); } },
     store.readOnly ? null : { label: "Groups…", icon: "lanes", run: groupsDialog },
+    store.kind === "server" ? { label: "Open on your phone…", icon: "phone", run: phoneDialog } : null,
     "sep",
     { label: ["Keyboard shortcuts", keys("?")], icon: "keyboard", run: helpDialog },
   ];
@@ -3353,7 +3470,7 @@ function displayMenu() {
       h("button", { type: "button", class: value === current ? "on" : null, "aria-pressed": String(value === current), onclick: () => { if (value !== current) { pick(value); fill(); } } }, ic ? icon(ic) : null, label)));
     const row = (label, keys, control, note) => h("div", { class: "d-row" },
       h("div", { class: "d-label" }, h("span", {}, label), keys.map((k) => h("kbd", {}, k))), control, note ? h("div", { class: "d-note" }, note) : null);
-    const graph = prefs.view === "graph", manual = prefs.arrange === "manual";
+    const graph = ui.view === "graph", manual = prefs.arrange === "manual";
     node.replaceChildren(...compact(
       graph && h("div", { class: "d-head" }, "Graph"),
       graph && row("Direction", ["L"], seg("Direction", [["horizontal", "Left to right", "right"], ["vertical", "Top to bottom", "down"]], prefs.orient === "vertical" ? "vertical" : "horizontal", toggleOrient)),
@@ -3427,9 +3544,9 @@ function spaceMenu(group) {
   return [
     { label, icon: "plus", run: () => newTaskDialog(group, { deps: [] }) },
     { label: "New group…", icon: "lanes", run: newGroupDialog },
-    prefs.view === "graph" ? "sep" : null,
-    prefs.view === "graph" ? { label: "Fit to screen", icon: "fit", run: () => fit(true) } : null,
-    prefs.view === "graph" && prefs.arrange === "manual" ? { label: "Use the automatic order", icon: "sort", run: useAutomaticOrder } : null,
+    ui.view === "graph" ? "sep" : null,
+    ui.view === "graph" ? { label: "Fit to screen", icon: "fit", run: () => fit(true) } : null,
+    ui.view === "graph" && prefs.arrange === "manual" ? { label: "Use the automatic order", icon: "sort", run: useAutomaticOrder } : null,
     g ? "sep" : null,
     g ? { label: `Delete the ${g.name} group…`, icon: "trash", danger: true, run: () => deleteGroupDialog(g.id) } : null,
   ];
@@ -3663,6 +3780,18 @@ function setupChrome() {
   setupTips();
   $("#view-graph").onclick = () => setView("graph");
   $("#view-board").onclick = () => setView("board");
+  phone.addEventListener("change", () => { if (board && !picking && ui.view !== prefs[viewPref()]) setView(prefs[viewPref()], false); });
+  // Phone keyboards shrink only the visual viewport, so dialogs size themselves to it.
+  const vv = window.visualViewport;
+  if (vv) {
+    const fitViewport = () => {
+      document.documentElement.style.setProperty("--vv-top", `${vv.offsetTop}px`);
+      document.documentElement.style.setProperty("--vv-height", `${vv.height}px`);
+    };
+    vv.addEventListener("resize", fitViewport);
+    vv.addEventListener("scroll", fitViewport);
+    fitViewport();
+  }
   $("#display").onclick = (e) => dropdown(e.currentTarget, displayMenu(), { alignRight: true, cls: "dpop", role: "dialog", label: "Display options" });
   prefs.levelGap = clamp(Math.round(+prefs.levelGap || 70), LEVEL_GAP.min, LEVEL_GAP.max);
   Object.assign($("#spread"), { min: LEVEL_GAP.min, max: LEVEL_GAP.max, value: prefs.levelGap });
@@ -3727,7 +3856,7 @@ function setupChrome() {
     const r = $("#viewport").getBoundingClientRect();
     const actions = {
       "/": () => search.focus(), n: () => newTaskDialog(), g: () => setView("graph"), b: () => setView("board"),
-      h: toggleDone, l: toggleOrient, m: () => prefs.view === "graph" && toggleArrange(), f: () => fit(true), "?": helpDialog,
+      h: toggleDone, l: toggleOrient, m: () => ui.view === "graph" && toggleArrange(), f: () => fit(true), "?": helpDialog,
       "[": () => setLevelGap(prefs.levelGap - 30), "]": () => setLevelGap(prefs.levelGap + 30),
       "+": () => zoomAt(1.2, r.width / 2, r.height / 2), "=": () => zoomAt(1.2, r.width / 2, r.height / 2), "-": () => zoomAt(1 / 1.2, r.width / 2, r.height / 2),
       Escape: () => { if (ui.selected) select(null); else if (ui.states.size || ui.search) { ui.states.clear(); ui.search = ""; search.value = ""; render(); } },
@@ -3735,9 +3864,13 @@ function setupChrome() {
     const fn = actions[e.key] || actions[e.key.toLowerCase()];
     if (fn) { e.preventDefault(); fn(); }
   });
-  window.addEventListener("resize", () => { if (prefs.view === "graph" && !fitted) fit(false); });
-  window.addEventListener("hashchange", () => { const id = decodeURIComponent(location.hash.slice(1)); if (board && id && get(id) && !same(id, ui.selected)) select(id); });
-  setInterval(() => { if (board && prefs.view === "graph") for (const t of board.tasks) if (t.notes.length && cardEls.has(key(t.id))) fillCard(cardEls.get(key(t.id)), t); }, 60000);
+  window.addEventListener("resize", () => { if (ui.view === "graph" && !fitted) fit(false); });
+  window.addEventListener("hashchange", () => {
+    const id = decodeURIComponent(location.hash.slice(1));
+    if (board && id && get(id) && !same(id, ui.selected)) select(id);
+    else if (board && !id && ui.selected) select(null);
+  });
+  setInterval(() => { if (board && ui.view === "graph") for (const t of board.tasks) if (t.notes.length && cardEls.has(key(t.id))) fillCard(cardEls.get(key(t.id)), t); }, 60000);
   setupGraphInput();
   setupMenus();
 }
@@ -3763,9 +3896,10 @@ function taskKey(key) {
   return true;
 }
 
-function setView(v) {
-  prefs.view = v;
-  savePrefs();
+// With remember off, the view changes for now and the next visit opens the one chosen before.
+function setView(v, remember = true) {
+  ui.view = v;
+  if (remember) { prefs[viewPref()] = v; savePrefs(); }
   render();
   if (v === "graph" && !fitted) fit(false);
 }

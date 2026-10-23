@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import socketserver
 import subprocess
 import sys
 import tempfile
@@ -1160,15 +1161,52 @@ class ServerTests(TempBoard):
         self.assertIn("only from the computer running Kanvas", json.loads(reply)["error"])
         self.assertEqual([b["name"] for b in json.loads(self.request("GET", "/api/boards")[2])["boards"]], [self.name])
 
-    def test_this_computer_also_answers_to_its_tailscale_name_for_tailscale_serve(self):
-        server = kanvas.start_server(self.path, "127.0.0.1", 0, quiet=True, also={"box.tail1.ts.net"})
-        self.addCleanup(server.server_close)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        self.addCleanup(server.shutdown)
-        port = server.server_address[1]
-        self.assertEqual(self.phone_request(port, "GET", self.api, "box.tail1.ts.net")[0], 200)
-        self.assertEqual(self.phone_request(port, "GET", self.api, "localhost")[0], 200)
-        self.assertEqual(self.phone_request(port, "GET", self.api, "evil.example")[0], 403)
+    def open_to_phone(self, magic=True):
+        """POST to open the boards to phones, with Tailscale and its listener stood in for."""
+        listener = mock.Mock()
+        with mock.patch.object(kanvas, "tailscale_self", return_value=("100.64.0.7", "box.tail1.ts.net", magic)), \
+                mock.patch.object(kanvas, "BoardServer", return_value=listener) as made:
+            status, _, body = self.request("POST", f"/{self.name}/api/phone", b"{}", {"Content-Type": "application/json"})
+        self.addCleanup(setattr, self.server, "phone_listener", None)
+        return status, json.loads(body), made, listener
+
+    def test_the_page_opens_the_boards_to_phones_and_gets_a_qr_code(self):
+        self.assertEqual(json.loads(self.request("GET", f"/{self.name}/api/phone")[2]), {"urls": [], "qr": None})
+        self.assertEqual(self.request("POST", f"/{self.name}/api/phone", b"{}", {"Content-Type": "text/plain"})[0], 415)
+        status, info, made, listener = self.open_to_phone()
+        self.assertEqual(status, 200)
+        self.assertEqual(info["urls"], [f"http://box.tail1.ts.net:{self.port}/{self.name}/", f"http://100.64.0.7:{self.port}/{self.name}/"])
+        self.assertTrue(info["qr"].startswith("<svg"))
+        self.assertEqual(made.call_args[0][0], ("100.64.0.7", self.port))
+        self.assertEqual(made.call_args[1]["hosts"], {"100.64.0.7", "box.tail1.ts.net", "box"})
+        self.assertIs(made.call_args[1]["share"], self.server)
+        self.assertEqual(json.loads(self.request("GET", f"/{self.name}/api/phone")[2])["urls"], info["urls"])
+        # `tailscale serve` forwards requests for this computer's name to its own address.
+        self.assertEqual(self.request("GET", self.api, headers={"Host": "box.tail1.ts.net"})[0], 200)
+        self.assertEqual(self.request("GET", self.api, headers={"Host": "evil.example"})[0], 403)
+
+    def test_without_magic_dns_phones_get_the_address_only(self):
+        status, info, _, _ = self.open_to_phone(magic=False)
+        self.assertEqual(info["urls"], [f"http://100.64.0.7:{self.port}/{self.name}/"])
+
+    def test_opening_to_phones_says_what_tailscale_is_missing(self):
+        with mock.patch.object(kanvas, "tailscale_self", side_effect=kanvas.KanvasError("Tailscale is not installed here.")):
+            status, _, body = self.request("POST", f"/{self.name}/api/phone", b"{}", {"Content-Type": "application/json"})
+        self.assertEqual((status, json.loads(body)["error"]), (503, "Tailscale is not installed here."))
+
+    def test_a_phone_cannot_open_the_boards_to_phones(self):
+        port = self.phone_server()
+        status, _ = self.phone_request(port, "POST", f"/{self.name}/api/phone", "box", b"{}", {"Content-Type": "application/json"})
+        self.assertEqual(status, 403)
+
+    def test_qr_codes_hold_the_address(self):
+        m = kanvas.qr_matrix("http://box.tail1.ts.net:8765/kanvas/")
+        self.assertEqual(len(m), 29)  # version 3
+        for x, y in ((0, 0), (len(m) - 7, 0), (0, len(m) - 7)):
+            self.assertEqual([m[y][x + i] for i in range(7)], [True] * 7)  # finder patterns
+        self.assertEqual(len(kanvas.qr_matrix("http://h/" + "x" * 300)), 69)  # version 13
+        lines = kanvas.qr_text("http://h/").splitlines()
+        self.assertEqual(len(lines), (21 + 5) // 2)
 
     def test_a_board_opened_in_a_kanvas_open_to_phones_gets_its_phone_addresses(self):
         self.server.phone = ["http://box.tail1.ts.net:8765/", "http://100.64.0.7:8765/"]
@@ -1276,14 +1314,16 @@ class ServeWithoutBoardTests(unittest.TestCase):
         os.chdir(os.path.join(top, "src"))
         return top
 
-    def serve(self, answer, *args, env=None):
-        """Runs `serve` at a pretend terminal, answering its question with `answer` (text or an exception)."""
+    def serve(self, answer, *args, env=None, start=None):
+        """Runs `serve` at a pretend terminal, answering its question with `answer` (text or an exception).
+        `start` stands in for start_server."""
         self.server = mock.Mock(server_address=("127.0.0.1", 8765), check_host=True, phone=[], quiet=False, **{"add_board.return_value": "project"})
         stdin, stdout, stderr = mock.Mock(), Terminal(), io.StringIO()
         stdin.isatty.return_value = True
         reply = {"return_value": answer} if isinstance(answer, str) else {"side_effect": answer}
+        started = {"side_effect": start} if start else {"return_value": self.server}
         with mock.patch.dict(os.environ), mock.patch("builtins.input", **reply) as self.ask, \
-                mock.patch.object(kanvas, "start_server", return_value=self.server) as self.start, \
+                mock.patch.object(kanvas, "start_server", **started) as self.start, \
                 mock.patch.object(kanvas, "find_running", return_value=None), \
                 mock.patch.object(sys, "stdin", stdin), mock.patch.object(sys, "stdout", stdout), \
                 mock.patch.object(sys, "stderr", stderr):
@@ -1346,18 +1386,31 @@ class ServeWithoutBoardTests(unittest.TestCase):
     def test_tailscale_serves_on_the_tailscale_address_and_prints_the_phone_addresses(self):
         top = self.project()
         write_board(os.path.join(top, "kanvas.json"), {"title": "", "groups": [], "tasks": []})
-        for magic, expected in ((True, "On your phone (Tailscale): http://box.tail1.ts.net:8765/project/  or  http://100.64.0.7:8765/project/"),
-                                (False, "On your phone (Tailscale): http://100.64.0.7:8765/project/\n")):
+        name = os.path.basename(top)
+        for magic, expected in ((True, f"On your phone (Tailscale): http://box.tail1.ts.net:8765/{name}/  or  http://100.64.0.7:8765/{name}/"),
+                                (False, f"On your phone (Tailscale): http://100.64.0.7:8765/{name}/\n")):
             with self.subTest(magic=magic), \
-                    mock.patch.object(kanvas, "tailscale_self", return_value=("100.64.0.7", "box.tail1.ts.net", magic)), \
-                    mock.patch.object(kanvas, "start_phone_server") as phone:
-                code, out, err = self.serve("n", "--tailscale")
+                    mock.patch.object(kanvas, "tailscale_self", return_value=("100.64.0.7", "box.tail1.ts.net", magic)):
+                code, out, err = self.serve("n", "--tailscale", start=self.real_server)
                 self.assertEqual(code, 0, err)
                 self.assertIn(expected, out)
+                self.assertIn("Scan it with your phone's camera:", out)
+                self.assertIn("\u2580", out)
                 self.assertIn("Anyone on your Tailscale network can open and edit your boards.", out)
-                self.assertEqual(phone.call_args[0][1:], ("100.64.0.7", {"100.64.0.7", "box.tail1.ts.net", "box"}))
-                self.assertEqual(self.start.call_args[1]["also"], {"100.64.0.7", "box.tail1.ts.net", "box"})
-                phone.return_value.shutdown.assert_called_once_with()
+                self.assertEqual(self.made.call_args[0][0], ("100.64.0.7", 8765))
+                self.made.return_value.server_close.assert_called_once_with()
+                self.made_patch.stop()
+
+    def real_server(self, path, host, port):
+        """A BoardServer that does not listen, whose phone listener is a stand-in."""
+        with mock.patch.object(socketserver.TCPServer, "server_bind"), mock.patch.object(socketserver.TCPServer, "server_activate"):
+            server = kanvas.BoardServer((host, port), path, quiet=True)
+        server.server_address = ("127.0.0.1", 8765)
+        server.serve_forever = lambda: None
+        self.made_patch = mock.patch.object(kanvas, "BoardServer")
+        self.made = self.made_patch.start()
+        self.addCleanup(mock.patch.stopall)
+        return server
 
     def test_tailscale_and_host_do_not_mix(self):
         top = self.project()

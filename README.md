@@ -189,13 +189,9 @@ One Kanvas serves the boards of all your projects. The first `serve` starts it a
 
 ### From your phone
 
-With [Tailscale](https://tailscale.com/download) on your computer and your phone, start Kanvas with:
+With [Tailscale](https://tailscale.com/download) on your computer and your phone, signed in to the same account, choose **Open on your phone…** in the menu on the board's name and scan the QR code with the phone's camera. `kanvas serve --tailscale` does the same from the start and prints the QR code in the terminal.
 
-```bash
-kanvas serve --tailscale
-```
-
-It prints the board's address for your phone, such as `http://my-computer.tail1234.ts.net:8765/my-project/`, followed by the same address with the computer's Tailscale IP in case the name does not resolve. Boards that other projects open later appear there too. Kanvas listens only on this computer and on its Tailscale address, so other networks cannot reach it, and it answers only to this computer's own names. It has no password: anyone on your Tailscale network can open and edit your boards. Opening new boards stays with `kanvas serve` on the computer.
+Under the QR code are the board's address by the computer's Tailscale name, such as `http://my-computer.tail1234.ts.net:8765/my-project/`, and by its Tailscale IP, in case the name does not resolve. The other open boards are there too. Kanvas listens only on this computer and on its Tailscale address, so other networks cannot reach it, and it answers only to this computer's own names. It has no password: anyone on your Tailscale network can open and edit your boards. Opening new boards, and opening Kanvas to phones, stay with the computer.
 
 If the phone cannot connect, the computer's firewall is probably blocking the port: allow it for Tailscale, or on NixOS add `networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 8765 ];`. Windows and macOS ask whether to allow Python the first time.
 

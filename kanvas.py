@@ -1495,6 +1495,197 @@ def cmd_export(args):
 
 
 # ---------------------------------------------------------------------------
+# QR codes, so a phone can open a board's address
+# ---------------------------------------------------------------------------
+
+# Error correction level M, by version: codewords per block, and blocks.
+QR_ECC_PER_BLOCK = (None, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26,
+                    26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28)
+QR_BLOCKS = (None, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16,
+             17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49)
+
+
+def _gf_mul(x, y):
+    z = 0
+    for i in reversed(range(8)):
+        z = (z << 1) ^ ((z >> 7) * 0x11D)
+        z ^= ((y >> i) & 1) * x
+    return z
+
+
+def _rs_remainder(data, degree):
+    divisor, root = [0] * (degree - 1) + [1], 1
+    for _ in range(degree):
+        for j in range(degree):
+            divisor[j] = _gf_mul(divisor[j], root)
+            if j + 1 < degree:
+                divisor[j] ^= divisor[j + 1]
+        root = _gf_mul(root, 2)
+    rem = [0] * degree
+    for b in data:
+        factor = b ^ rem.pop(0)
+        rem.append(0)
+        for i, coef in enumerate(divisor):
+            rem[i] ^= _gf_mul(coef, factor)
+    return rem
+
+
+def _raw_modules(ver):
+    n = (16 * ver + 128) * ver + 64
+    if ver >= 2:
+        align = ver // 7 + 2
+        n -= (25 * align - 10) * align - 55
+        if ver >= 7:
+            n -= 36
+    return n
+
+
+def qr_matrix(text):
+    """The QR code of `text` (byte mode, error correction M) as rows of booleans, True for dark."""
+    data = text.encode("utf-8")
+    for ver in range(1, 41):
+        capacity = _raw_modules(ver) // 8 - QR_ECC_PER_BLOCK[ver] * QR_BLOCKS[ver]
+        count_bits = 8 if ver < 10 else 16
+        if 4 + count_bits + 8 * len(data) <= capacity * 8:
+            break
+    else:
+        raise KanvasError("Too long for a QR code")
+    bits = [0, 1, 0, 0] + [(len(data) >> i) & 1 for i in reversed(range(count_bits))]
+    bits += [(b >> i) & 1 for b in data for i in reversed(range(8))]
+    bits += [0] * min(4, capacity * 8 - len(bits))
+    bits += [0] * (-len(bits) % 8)
+    words = [int("".join(map(str, bits[i:i + 8])), 2) for i in range(0, len(bits), 8)]
+    words += [(0xEC, 0x11)[i % 2] for i in range(capacity - len(words))]
+
+    # Split into blocks, add error correction, and interleave.
+    nblocks, ecc = QR_BLOCKS[ver], QR_ECC_PER_BLOCK[ver]
+    raw = _raw_modules(ver) // 8
+    short, short_len = nblocks - raw % nblocks, raw // nblocks
+    blocks, k = [], 0
+    for i in range(nblocks):
+        part = words[k:k + short_len - ecc + (0 if i < short else 1)]
+        k += len(part)
+        blocks.append(part + ([0] if i < short else []) + _rs_remainder(part, ecc))
+    stream = [blk[i] for i in range(len(blocks[0])) for j, blk in enumerate(blocks)
+              if i != short_len - ecc or j >= short]
+
+    size = ver * 4 + 17
+    dark = [[False] * size for _ in range(size)]
+    fixed = [[False] * size for _ in range(size)]
+
+    def put(x, y, on):
+        dark[y][x], fixed[y][x] = on, True
+
+    for i in range(size):
+        put(6, i, i % 2 == 0)
+        put(i, 6, i % 2 == 0)
+    for cx, cy in ((3, 3), (size - 4, 3), (3, size - 4)):
+        for dy in range(-4, 5):
+            for dx in range(-4, 5):
+                x, y = cx + dx, cy + dy
+                if 0 <= x < size and 0 <= y < size:
+                    put(x, y, max(abs(dx), abs(dy)) not in (2, 4))
+    if ver > 1:
+        align = ver // 7 + 2
+        step = (ver * 8 + align * 3 + 5) // (align * 4 - 4) * 2
+        pos = [6] + sorted(size - 7 - i * step for i in range(align - 1))
+        for ax in pos:
+            for ay in pos:
+                if (ax, ay) in ((6, 6), (6, pos[-1]), (pos[-1], 6)):
+                    continue
+                for dy in range(-2, 3):
+                    for dx in range(-2, 3):
+                        put(ax + dx, ay + dy, max(abs(dx), abs(dy)) != 1)
+    if ver >= 7:
+        rem = ver
+        for _ in range(12):
+            rem = (rem << 1) ^ ((rem >> 11) * 0x1F25)
+        vbits = ver << 12 | rem
+        for i in range(18):
+            a, b, on = size - 11 + i % 3, i // 3, (vbits >> i) & 1 == 1
+            put(a, b, on)
+            put(b, a, on)
+
+    def put_format(mask):
+        rem = mask  # level M is 0
+        for _ in range(10):
+            rem = (rem << 1) ^ ((rem >> 9) * 0x537)
+        f = (mask << 10 | rem) ^ 0x5412
+        bit = lambda i: (f >> i) & 1 == 1
+        for i in range(6):
+            put(8, i, bit(i))
+        put(8, 7, bit(6))
+        put(8, 8, bit(7))
+        put(7, 8, bit(8))
+        for i in range(9, 15):
+            put(14 - i, 8, bit(i))
+        for i in range(8):
+            put(size - 1 - i, 8, bit(i))
+        for i in range(8, 15):
+            put(8, size - 15 + i, bit(i))
+        put(8, size - 8, True)
+
+    put_format(0)
+    i, right = 0, size - 1
+    while right >= 1:
+        if right == 6:
+            right = 5
+        for vert in range(size):
+            for j in range(2):
+                x = right - j
+                y = size - 1 - vert if (right + 1) & 2 == 0 else vert
+                if not fixed[y][x] and i < len(stream) * 8:
+                    dark[y][x] = (stream[i >> 3] >> (7 - (i & 7))) & 1 == 1
+                    i += 1
+        right -= 2
+
+    masks = (lambda x, y: (x + y) % 2 == 0, lambda x, y: y % 2 == 0, lambda x, y: x % 3 == 0,
+             lambda x, y: (x + y) % 3 == 0, lambda x, y: (x // 3 + y // 2) % 2 == 0,
+             lambda x, y: x * y % 2 + x * y % 3 == 0, lambda x, y: (x * y % 2 + x * y % 3) % 2 == 0,
+             lambda x, y: ((x + y) % 2 + x * y % 3) % 2 == 0)
+
+    def masked(m):
+        put_format(m)
+        return [[dark[y][x] ^ (not fixed[y][x] and masks[m](x, y)) for x in range(size)] for y in range(size)]
+
+    def penalty(g):
+        score = 0
+        for line in g + [list(col) for col in zip(*g)]:
+            run = 1
+            for a, b in zip(line, line[1:] + [None]):
+                if a == b:
+                    run += 1
+                else:
+                    score += run - 2 if run >= 5 else 0
+                    run = 1
+        score += 3 * sum(g[y][x] == g[y][x + 1] == g[y + 1][x] == g[y + 1][x + 1]
+                         for y in range(size - 1) for x in range(size - 1))
+        share = sum(map(sum, g)) * 20 // (size * size)
+        return score + 10 * abs(share - 10)
+
+    best = min(range(8), key=lambda m: penalty(masked(m)))
+    return masked(best)
+
+
+def qr_svg(text):
+    m = qr_matrix(text)
+    n = len(m) + 8
+    path = "".join(f"M{x + 4} {y + 4}h1v1h-1z" for y, row in enumerate(m) for x, on in enumerate(row) if on)
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {n} {n}" shape-rendering="crispEdges">'
+            f'<rect width="{n}" height="{n}" fill="#fff"/><path d="{path}" fill="#000"/></svg>')
+
+
+def qr_text(text):
+    """The QR code of `text` for a terminal, two rows per line, dark on light whatever the terminal's colours."""
+    m = qr_matrix(text)
+    n = len(m)
+    rows = [[False] * (n + 4)] * 2 + [[False] * 2 + r + [False] * 2 for r in m] + [[False] * (n + 4)] * 3
+    chars = {(False, False): " ", (True, False): "\u2580", (False, True): "\u2584", (True, True): "\u2588"}
+    return "\n".join("\x1b[30;107m" + "".join(chars[a, b] for a, b in zip(rows[y], rows[y + 1])) + "\x1b[0m"
+                     for y in range(0, len(rows) - 1, 2))
+
+
+# ---------------------------------------------------------------------------
 # Local server for the browser board
 # ---------------------------------------------------------------------------
 
@@ -1535,8 +1726,11 @@ class BoardServer(ThreadingHTTPServer):
         super().__init__(address, BoardHandler)
         self.hosts = hosts
         self.quiet = quiet
-        self.phone = []  # base URLs of the Tailscale listener, by name and by address
+        self.main = share or self
         self.opens_boards = share is None
+        self.phone = []  # base URLs of the Tailscale listener, by name and by address
+        self.phone_listener = None
+        self.phone_lock = threading.Lock()
         self.boards = share.boards if share else {}  # name -> path, in the order the boards were opened
         self.boards_lock = share.boards_lock if share else threading.Lock()
         if path:
@@ -1545,6 +1739,34 @@ class BoardServer(ThreadingHTTPServer):
     @property
     def check_host(self):
         return self.hosts is not None
+
+    def open_to_phone(self):
+        """Serve the boards on this computer's Tailscale address too, on the same port; return the
+        base URLs a phone can open."""
+        with self.phone_lock:
+            if self.phone:
+                return self.phone
+            ip, name, magic = tailscale_self()
+            names = tailscale_names(ip, name)
+            port = self.server_address[1]
+            try:
+                listener = BoardServer((ip, port), hosts=frozenset(names), quiet=self.quiet, share=self)
+            except OSError as e:
+                raise KanvasError(f"Could not listen on the Tailscale address {ip}:{port}: {e}")
+            threading.Thread(target=listener.serve_forever, daemon=True).start()
+            self.phone_listener = listener
+            # `tailscale serve` passes these names on to this computer's own address.
+            if self.hosts is not None:
+                self.hosts = self.hosts | names
+            self.phone = [f"http://{h}:{port}/" for h in ([name] if magic else []) + [ip]]
+            return self.phone
+
+    def server_close(self):
+        if self.phone_listener:
+            self.phone_listener.shutdown()
+            self.phone_listener.server_close()
+            self.phone_listener = None
+        super().server_close()
 
     def server_bind(self):
         # HTTPServer.server_bind looks up the host's full name with socket.getfqdn,
@@ -1657,6 +1879,8 @@ class BoardHandler(BaseHTTPRequestHandler):
             return self._send(404, page("Kanvas", body), "text/html; charset=utf-8")
         if not rest:
             return self._redirect(f"/{quote(name)}/")
+        if rest == ["api", "phone"]:
+            return self._phone(name)
         if rest in ([""], ["index.html"]):
             try:
                 with open(HTML_FILE, "rb") as f:
@@ -1676,11 +1900,31 @@ class BoardHandler(BaseHTTPRequestHandler):
             return self._send(200, data, headers={"ETag": tag})
         return self._error(404, "Not found")
 
+    def _phone(self, name):
+        """The board's addresses for phones on Tailscale, with a QR code of the first; none while closed to phones."""
+        urls = [f"{base}{quote(name)}/" for base in self.server.main.phone]
+        info = {"urls": urls, "qr": qr_svg(urls[0]) if urls else None}
+        self._send(200, json.dumps(info).encode("utf-8"))
+
     def do_POST(self):
-        """Opens another project's board here, for `kanvas serve` in that project."""
+        """Opens another project's board here, for `kanvas serve` in that project, or opens the boards to phones."""
         if not self._host_allowed():
             return self._error(403, "Host not allowed")
-        if self._route() != ["api", "boards"]:
+        parts = self._route()
+        if parts[1:] == ["api", "phone"] and self.server.board_path(parts[0]) is not None:
+            if not self.server.opens_boards:
+                return self._error(403, "Only the computer running Kanvas can open it to phones")
+            if self._read_json() is None:
+                return
+            try:
+                fresh = not self.server.phone
+                urls = self.server.open_to_phone()
+            except KanvasError as e:
+                return self._error(503, str(e))
+            if fresh and not self.server.quiet:
+                print(f"[{time.strftime('%H:%M:%S')}] opened to phones on Tailscale: {'  or  '.join(urls)}", flush=True)
+            return self._phone(parts[0])
+        if parts != ["api", "boards"]:
             return self._error(404, "Not found")
         if not self.server.opens_boards:
             return self._error(403, "Boards open only from the computer running Kanvas")
@@ -1740,9 +1984,8 @@ class BoardHandler(BaseHTTPRequestHandler):
         self._send(200, data, headers={"ETag": etag_of(data)})
 
 
-def start_server(path, host="127.0.0.1", port=8765, quiet=False, also=()):
-    """Serve on the first free port from `port` on. `also` are more names to allow in the Host header."""
-    hosts = LOCAL_NAMES | set(also) if host in ("127.0.0.1", "localhost") else None
+def start_server(path, host="127.0.0.1", port=8765, quiet=False):
+    hosts = LOCAL_NAMES if host in ("127.0.0.1", "localhost") else None
     last_error = None
     for p in range(port, port + 20):
         try:
@@ -1838,19 +2081,16 @@ def tailscale_names(ip, name):
     return {n for n in (ip, name, name.split(".")[0]) if n}
 
 
-def start_phone_server(server, ip, names):
-    """Serve `server`'s boards on this computer's Tailscale address too, on the same port."""
-    port = server.server_address[1]
-    try:
-        phone = BoardServer((ip, port), hosts=frozenset(names), quiet=server.quiet, share=server)
-    except OSError as e:
-        raise KanvasError(f"Could not listen on the Tailscale address {ip}:{port}: {e}")
-    threading.Thread(target=phone.serve_forever, daemon=True).start()
-    return phone
-
-
 def phone_line(urls):
     return f"On your phone (Tailscale): {urls[0]}" + (f"  or  {urls[1]}" if len(urls) > 1 else "")
+
+
+def print_phone(urls):
+    print(phone_line(urls))
+    if sys.stdout.isatty():
+        print("Scan it with your phone's camera:")
+        print(qr_text(urls[0]))
+    print("Anyone on your Tailscale network can open and edit your boards.")
 
 
 def offer_board():
@@ -1895,7 +2135,7 @@ def cmd_serve(args):
             print(hint)
         print(f"Opened in the Kanvas already running: {board_url}")
         if phone_urls:
-            print(phone_line(phone_urls))
+            print_phone(phone_urls)
         elif args.tailscale:
             print("That Kanvas is not open to your phone. Stop it (Ctrl+C in its terminal) and run `kanvas serve --tailscale` there.")
         if version != VERSION:
@@ -1903,18 +2143,13 @@ def cmd_serve(args):
         if not args.no_open:
             webbrowser.open(board_url)
         return
-    ts = tailscale_self() if args.tailscale else None
-    names = tailscale_names(ts[0], ts[1]) if ts else set()
-    server = start_server(path, args.host, args.port, also=names)
-    phone = None
-    try:
-        if ts:
-            phone = start_phone_server(server, ts[0], names)
-            port = server.server_address[1]
-            server.phone = [f"http://{h}:{port}/" for h in ([ts[1]] if ts[2] else []) + [ts[0]]]
-    except KanvasError:
-        server.server_close()
-        raise
+    server = start_server(path, args.host, args.port)
+    if args.tailscale:
+        try:
+            server.open_to_phone()
+        except KanvasError:
+            server.server_close()
+            raise
     host, port = server.server_address[:2]
     name = quote(server.add_board(path))
     board_url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}/{name}/"
@@ -1923,8 +2158,7 @@ def cmd_serve(args):
         print(hint)
     print(f"Open {board_url}  (Ctrl+C to stop)")
     if server.phone:
-        print(phone_line([f"{base}{name}/" for base in server.phone]))
-        print("Anyone on your Tailscale network can open and edit your boards.")
+        print_phone([f"{base}{name}/" for base in server.phone])
     print("Boards of other projects open here too: run `kanvas serve` in them.")
     if not server.check_host:
         print("Warning: listening beyond localhost; anyone who can reach this port can edit the board.")
@@ -1935,9 +2169,6 @@ def cmd_serve(args):
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
-        if phone:
-            phone.shutdown()
-            phone.server_close()
         server.server_close()
 
 
