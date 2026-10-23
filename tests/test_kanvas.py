@@ -1475,6 +1475,19 @@ class LayoutTests(unittest.TestCase):
                 self.assertLessEqual(m["behind"], behind)
                 self.assertLessEqual(m["bends"], bends)
 
+    def test_hiding_finished_tasks_drops_groups_with_nothing_left(self):
+        code = (
+            "const b = normalize(input), open = b.tasks.filter((t) => t.state !== 'done');\n"
+            "const lanes = (tasks, emptyLanes) => layout(tasks, b, { vertical: false, levelGap: 70, emptyLanes }).lanes.map((l) => `${l.id}:${l.color}`);\n"
+            "process.stdout.write(JSON.stringify({ all: lanes(b.tasks, false), shown: lanes(open, true), hidden: lanes(open, false) }));"
+        )
+        with open(os.path.join(ROOT, "examples", "sample.json"), encoding="utf-8") as f:
+            out = json.loads(run_html_js(self, code, f.read()))
+        self.assertEqual(len(out["all"]), 4)
+        self.assertEqual(out["shown"], out["all"])
+        self.assertEqual(out["hidden"], out["all"][1:])
+        self.assertTrue(out["all"][0].startswith("RS:"))
+
     def test_manual_layout_keeps_file_order(self):
         import layout_stats
         for (path, vertical), m in layout_stats.measure(layout_stats.DEFAULT_BOARDS, manual=True).items():

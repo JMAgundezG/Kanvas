@@ -1167,8 +1167,8 @@ function inversions(a) {
 // stack across it. An arrow that skips depths gets a thin slot in every depth it passes, so
 // it runs between cards instead of under them. Implied arrows get no slots: they are hidden
 // unless one of their tasks is selected. With `manual`, the cards of a lane at one depth keep
-// their order in `tasks`.
-function layout(tasks, b, { vertical, levelGap, manual = false }) {
+// their order in `tasks`. Without `emptyLanes`, groups with none of `tasks` get no lane.
+function layout(tasks, b, { vertical, levelGap, manual = false, emptyLanes = true }) {
   const vis = new Map(tasks.map((t) => [key(t.id), t]));
   const depsOf = new Map(tasks.map((t) => [key(t.id), t.deps.map(key).filter((d) => vis.has(d))]));
   const depth = chainDepths(depsOf);
@@ -1179,7 +1179,8 @@ function layout(tasks, b, { vertical, levelGap, manual = false }) {
   const colStart = (d) => (vertical ? LANE_HEAD : LANE_PAD) + d * (CL + levelGap);
 
   const knownGroups = new Set(b.groups.map((g) => g.id));
-  const lanes = b.groups.map((g, i) => ({ id: g.id, name: g.name, color: GROUP_COLORS[i % GROUP_COLORS.length], cells: new Map() }));
+  const lanes = b.groups.map((g, i) => ({ id: g.id, name: g.name, color: GROUP_COLORS[i % GROUP_COLORS.length], cells: new Map() }))
+    .filter((l) => emptyLanes || tasks.some((t) => t.group === l.id));
   if (tasks.some((t) => !knownGroups.has(t.group))) lanes.push({ id: null, name: "Ungrouped", color: "var(--faint)", cells: new Map() });
   const laneOfTask = (t) => lanes.find((l) => l.id === (knownGroups.has(t.group) ? t.group : null));
 
@@ -2160,7 +2161,7 @@ function fillCard(el, t) {
 let layoutKey = "";
 function renderGraph() {
   const tasks = board.tasks.filter((t) => !(prefs.hideDone && t.state === "done"));
-  const opts = { vertical: prefs.orient === "vertical", levelGap: prefs.levelGap, manual: prefs.arrange === "manual" };
+  const opts = { vertical: prefs.orient === "vertical", levelGap: prefs.levelGap, manual: prefs.arrange === "manual", emptyLanes: !prefs.hideDone };
   // Lane counts include hidden finished tasks, so every task is part of the key.
   const k = JSON.stringify([opts, prefs.hideDone, board.groups.map((g) => [g.id, g.name]), board.tasks.map((t) => [t.id, t.group, t.deps, t.state])]);
   const L = k === layoutKey && lastLayout ? lastLayout : layout(tasks, board, opts);
@@ -2325,7 +2326,7 @@ function fit(animate = true, maxZoom = 1) {
 function fillScreen() {
   const tasks = board.tasks.filter((t) => !(prefs.hideDone && t.state === "done"));
   if (!tasks.length) return fit(true);
-  const opts = { vertical: prefs.orient === "vertical", manual: prefs.arrange === "manual" };
+  const opts = { vertical: prefs.orient === "vertical", manual: prefs.arrange === "manual", emptyLanes: !prefs.hideDone };
   // Size grows in step with the spacing, so two layouts tell it for every spacing.
   const a = layout(tasks, board, { ...opts, levelGap: LEVEL_GAP.min }), b = layout(tasks, board, { ...opts, levelGap: LEVEL_GAP.max });
   const { w, h } = fitRoom(), span = LEVEL_GAP.max - LEVEL_GAP.min;
@@ -3967,6 +3968,7 @@ function setLevelGap(gap) {
 function toggleDone() {
   prefs.hideDone = !prefs.hideDone;
   savePrefs();
+  fitted = false;
   render();
 }
 
