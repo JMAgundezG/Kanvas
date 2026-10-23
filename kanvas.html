@@ -2302,9 +2302,11 @@ function applyView(animate) {
 }
 
 // Room for the graph on screen, with a margin. The zoom bar floats over the graph.
+// Without a mouse the zoom bar never fades, so the graph fits above it.
 function fitRoom() {
-  const vp = $("#viewport").getBoundingClientRect();
-  return { vp, w: vp.width - 48, h: vp.height - 48 };
+  const vp = $("#viewport").getBoundingClientRect(), bar = $(".zoombar");
+  const below = bar && !matchMedia("(hover: hover)").matches ? vp.bottom - bar.getBoundingClientRect().top + 10 : 0;
+  return { vp, w: vp.width - 48, h: vp.height - 24 - Math.max(24, below) };
 }
 
 function fit(animate = true, maxZoom = 1) {
@@ -2314,7 +2316,7 @@ function fit(animate = true, maxZoom = 1) {
   const W = lastLayout.width || 1, H = lastLayout.height || 1;
   view.k = clamp(Math.min(w / W, h / H, maxZoom), 0.25, maxZoom);
   view.x = Math.max(24, (vp.width - W * view.k) / 2);
-  view.y = Math.max(24, (vp.height - H * view.k) / 2);
+  view.y = 24 + Math.max(0, (h - H * view.k) / 2);
   applyView(animate);
 }
 
