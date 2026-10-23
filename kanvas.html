@@ -495,8 +495,8 @@ body.picking .card { cursor: pointer; }
   input, select, textarea, .title-input, .note-edit textarea, .dlg .field :is(input, select, textarea), .dlg .pick-box input { font-size: 16px; }
   header.top :is(button, .search input), header.top > .tools > button, header.top > #help, .board-title, .title-input { height: 40px; }
   header.top .icon-btn, #new-task, #display { min-width: 40px; justify-content: center; }
-  header.top .track { padding: 1px; }
-  header.top .track > button { height: 38px; min-width: 38px; justify-content: center; }
+  header.top .track { padding: 0; }
+  header.top .track > button { height: 40px; min-width: 40px; justify-content: center; }
   :is(.p-head, .now-actions, .now-yolo, .row-end, .section-head, .dlg-actions, .col-head, .pick-bar, .welcome-card, .banner, .group-row, .group-new) button, button.add-line, .dlg .field :is(input, select) { min-height: 40px; }
   .p-head .icon-btn, .p-back, .group-row .btns button { min-width: 40px; justify-content: center; }
   .zoombar button { height: 40px; min-width: 40px; }
@@ -504,7 +504,7 @@ body.picking .card { cursor: pointer; }
   .dep { padding-block: 0; }
   .ctx-menu.dpop .track > button { height: 38px; }
   .dep button { align-self: stretch; min-width: 40px; margin-right: -6px; justify-content: center; }
-  .note-meta .note-btn { top: -10px; right: -10px; padding: 13px; }
+  .note-btn { padding: 13px; margin: -10px; }
   .pick-chip button { min-width: 32px; min-height: 32px; justify-content: center; }
   .toast button.link { min-height: 40px; }
 }
@@ -517,7 +517,7 @@ body.picking .card { cursor: pointer; }
   header.top { gap: 0 4px; padding: 6px 8px; }
   header.top > .tools { display: contents; }
   .brand { order: 1; flex: 1 1 0; min-width: 0; }
-  .brand > .sync { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+  .brand > #sync { flex: 0 6 auto; min-width: 8px; overflow: hidden; }
   .sync .label { overflow: hidden; text-overflow: ellipsis; }
   .meter { display: none; }
   .board-title { max-width: 100%; }
@@ -527,8 +527,8 @@ body.picking .card { cursor: pointer; }
   #display .icon:last-child { display: none; }
   #new-task { order: 4; padding: 0; }
   header.top > .spacer { order: 5; flex: 0 0 100%; height: 6px; }
-  #chips { order: 6; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-  #chips > .schip { flex: 1 0 auto; min-width: 34px; padding: 0 6px; }
+  #chips { order: 6; flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  #chips > .schip { flex: 1 1 auto; min-width: 34px; padding: 0 6px; }
   #yolo-chip { order: 7; }
   .search { order: 8; flex: 0 0 40px; }
   .search input { width: 100%; padding: 0 8px 0 30px; }
@@ -3074,7 +3074,8 @@ function phoneDialog() {
     body.replaceChildren(qr,
       h("p", {}, "Scan it with your phone's camera. The phone needs the Tailscale app, signed in to the same account."),
       ...info.urls.map((u) => h("div", { class: "phone-url" }, h("code", {}, u), h("button", { type: "button", onclick: () => copy(u) }, icon("copy"), "Copy"))),
-      h("p", { class: "phone-note" }, `Anyone on your Tailscale network can open and edit your boards. If the phone cannot connect, allow port ${port} for Tailscale in this computer's firewall.`));
+      h("p", { class: "phone-note" }, `Anyone on your Tailscale network can open and edit your boards. If the phone cannot connect, allow port ${port} for Tailscale in this computer's firewall: `,
+        h("a", { href: "https://github.com/XMihura/Kanvas#if-the-phone-cannot-connect", target: "_blank", rel: "noopener" }, "how, for each system"), "."));
   };
   body.append(h("p", {}, "Loading…"));
   ask("GET").then(show, fail);
