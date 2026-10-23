@@ -176,7 +176,7 @@ You type `kanvas <command>`; `kanvas -h` lists the commands and `kanvas <command
 | `withdraw ID [ID ...]` | Delete proposals that are not approved yet |
 | `undepend ID ON [ON ...]` | Remove dependencies from a proposal |
 | `check` | Validate the board; exit code 1 on errors |
-| `serve [--port N] [--host H]` | Open the board in the browser; when Kanvas already runs for another project, open the board there and return. In a project without a board, offer to create one first |
+| `serve [--port N] [--host H] [--tailscale]` | Open the board in the browser; when Kanvas already runs for another project, open the board there and return. In a project without a board, offer to create one first. `--tailscale` also opens the boards to your phone over Tailscale |
 | `init [DIR]` | Set up Kanvas in a project, or refresh the agents' copy after an update |
 | `import FILE.canvas` | Migrate a Kanvas 0.x Obsidian board |
 | `export [FILE.html]` | Write a read-only snapshot |
@@ -186,6 +186,18 @@ You type `kanvas <command>`; `kanvas -h` lists the commands and `kanvas <command
 In a project without a board, `serve` asks whether to create one, then opens it. Without a person at the terminal, it fails with a message naming `kanvas init`.
 
 One Kanvas serves the boards of all your projects. The first `serve` starts it and keeps running; a `serve` in another project finds it, opens its board there and returns. Each board's address is named after its project folder, and `http://127.0.0.1:8765/` lists the open boards. Kanvas keeps that list only while it runs and writes nothing outside your projects: after a restart, a board comes back when you run `serve` in its project.
+
+### From your phone
+
+With [Tailscale](https://tailscale.com/download) on your computer and your phone, start Kanvas with:
+
+```bash
+kanvas serve --tailscale
+```
+
+It prints the board's address for your phone, such as `http://my-computer.tail1234.ts.net:8765/my-project/`, followed by the same address with the computer's Tailscale IP in case the name does not resolve. Boards that other projects open later appear there too. Kanvas listens only on this computer and on its Tailscale address, so other networks cannot reach it, and it answers only to this computer's own names. It has no password: anyone on your Tailscale network can open and edit your boards. Opening new boards stays with `kanvas serve` on the computer.
+
+If the phone cannot connect, the computer's firewall is probably blocking the port: allow it for Tailscale, or on NixOS add `networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 8765 ];`. Windows and macOS ask whether to allow Python the first time.
 
 Text arguments also accept `--stdin` and `--file PATH`, read as UTF-8 on every platform, which is the reliable way to pass multi-line or non-ASCII text from any shell. Notes are signed with `--as NAME` or the `KANVAS_AGENT` environment variable. The CLI finds `kanvas.json` in the current directory or any parent; `--board PATH` or `KANVAS_BOARD` point elsewhere.
 

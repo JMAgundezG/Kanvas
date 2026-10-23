@@ -1117,6 +1117,66 @@ class ServerTests(TempBoard):
         self.assertIn(f"Opened in the Kanvas already running: http://127.0.0.1:{self.port}/other/", out)
         self.assertEqual([b["path"] for b in json.loads(self.request("GET", "/api/boards")[2])["boards"]], [self.path, other])
 
+    def phone_server(self):
+        """A listener like the one `serve --tailscale` adds, here on another local port."""
+        phone = kanvas.BoardServer(("127.0.0.1", 0), hosts=frozenset({"box.tail1.ts.net", "box", "100.64.0.7"}), quiet=True, share=self.server)
+        threading.Thread(target=phone.serve_forever, daemon=True).start()
+        self.addCleanup(phone.server_close)
+        self.addCleanup(phone.shutdown)
+        return phone.server_address[1]
+
+    def phone_request(self, port, method, path, host, body=None, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            conn.request(method, path, body=body, headers=dict(headers or {}, Host=host))
+            r = conn.getresponse()
+            return r.status, r.read()
+        finally:
+            conn.close()
+
+    def test_a_phone_on_tailscale_sees_the_same_boards_by_this_computers_names_only(self):
+        port = self.phone_server()
+        for host in ("box.tail1.ts.net", f"box.tail1.ts.net:{port}", "box", "100.64.0.7:8765", "box.tail1.ts.net."):
+            with self.subTest(host=host):
+                self.assertEqual(self.phone_request(port, "GET", self.api, host), (200, self.raw()))
+        for host in ("evil.example", "127.0.0.1", "localhost", "box.evil.example"):
+            with self.subTest(host=host):
+                self.assertEqual(self.phone_request(port, "GET", self.api, host)[0], 403)
+        other = self.other_project()
+        self.assertEqual(self.open_board(other)[0], 200)
+        with open(other, "rb") as f:
+            self.assertEqual(self.phone_request(port, "GET", "/other/api/board", "box"), (200, f.read()))
+        board = json.loads(self.raw())
+        board["tasks"][3]["state"] = "todo"
+        status, _ = self.phone_request(port, "PUT", self.api, "box", json.dumps(board).encode("utf-8"), {"Content-Type": "application/json"})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.get("DV-04")["state"], "todo")
+
+    def test_a_phone_cannot_open_boards(self):
+        port = self.phone_server()
+        body = json.dumps({"path": self.other_project()}).encode("utf-8")
+        status, reply = self.phone_request(port, "POST", "/api/boards", "box", body, {"Content-Type": "application/json"})
+        self.assertEqual(status, 403)
+        self.assertIn("only from the computer running Kanvas", json.loads(reply)["error"])
+        self.assertEqual([b["name"] for b in json.loads(self.request("GET", "/api/boards")[2])["boards"]], [self.name])
+
+    def test_this_computer_also_answers_to_its_tailscale_name_for_tailscale_serve(self):
+        server = kanvas.start_server(self.path, "127.0.0.1", 0, quiet=True, also={"box.tail1.ts.net"})
+        self.addCleanup(server.server_close)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        port = server.server_address[1]
+        self.assertEqual(self.phone_request(port, "GET", self.api, "box.tail1.ts.net")[0], 200)
+        self.assertEqual(self.phone_request(port, "GET", self.api, "localhost")[0], 200)
+        self.assertEqual(self.phone_request(port, "GET", self.api, "evil.example")[0], 403)
+
+    def test_a_board_opened_in_a_kanvas_open_to_phones_gets_its_phone_addresses(self):
+        self.server.phone = ["http://box.tail1.ts.net:8765/", "http://100.64.0.7:8765/"]
+        status, _, body = self.open_board(self.other_project())
+        self.assertEqual(json.loads(body)["phone"], ["http://box.tail1.ts.net:8765/other/", "http://100.64.0.7:8765/other/"])
+        url = f"http://127.0.0.1:{self.port}/"
+        self.assertEqual(kanvas.join_running(url, self.path), (url + f"{self.name}/", [f"http://box.tail1.ts.net:8765/{self.name}/", f"http://100.64.0.7:8765/{self.name}/"]))
+
     def browser_after_agent(self, op, *agent_args):
         """The page loads the board, an agent runs a command, then the page saves `op`.
 
@@ -1218,7 +1278,7 @@ class ServeWithoutBoardTests(unittest.TestCase):
 
     def serve(self, answer, *args, env=None):
         """Runs `serve` at a pretend terminal, answering its question with `answer` (text or an exception)."""
-        self.server = mock.Mock(server_address=("127.0.0.1", 8765), check_host=True, **{"add_board.return_value": "project"})
+        self.server = mock.Mock(server_address=("127.0.0.1", 8765), check_host=True, phone=[], quiet=False, **{"add_board.return_value": "project"})
         stdin, stdout, stderr = mock.Mock(), Terminal(), io.StringIO()
         stdin.isatty.return_value = True
         reply = {"return_value": answer} if isinstance(answer, str) else {"side_effect": answer}
@@ -1282,6 +1342,59 @@ class ServeWithoutBoardTests(unittest.TestCase):
                 self.assertIn("Board not found", err)
                 self.ask.assert_not_called()
                 self.assertFalse(os.path.exists("missing.json"))
+
+    def test_tailscale_serves_on_the_tailscale_address_and_prints_the_phone_addresses(self):
+        top = self.project()
+        write_board(os.path.join(top, "kanvas.json"), {"title": "", "groups": [], "tasks": []})
+        for magic, expected in ((True, "On your phone (Tailscale): http://box.tail1.ts.net:8765/project/  or  http://100.64.0.7:8765/project/"),
+                                (False, "On your phone (Tailscale): http://100.64.0.7:8765/project/\n")):
+            with self.subTest(magic=magic), \
+                    mock.patch.object(kanvas, "tailscale_self", return_value=("100.64.0.7", "box.tail1.ts.net", magic)), \
+                    mock.patch.object(kanvas, "start_phone_server") as phone:
+                code, out, err = self.serve("n", "--tailscale")
+                self.assertEqual(code, 0, err)
+                self.assertIn(expected, out)
+                self.assertIn("Anyone on your Tailscale network can open and edit your boards.", out)
+                self.assertEqual(phone.call_args[0][1:], ("100.64.0.7", {"100.64.0.7", "box.tail1.ts.net", "box"}))
+                self.assertEqual(self.start.call_args[1]["also"], {"100.64.0.7", "box.tail1.ts.net", "box"})
+                phone.return_value.shutdown.assert_called_once_with()
+
+    def test_tailscale_and_host_do_not_mix(self):
+        top = self.project()
+        write_board(os.path.join(top, "kanvas.json"), {"title": "", "groups": [], "tasks": []})
+        code, _, err = self.serve("n", "--tailscale", "--host", "0.0.0.0")
+        self.assertEqual(code, 1)
+        self.assertIn("--tailscale or --host, not both", err)
+        self.start.assert_not_called()
+
+
+class TailscaleTests(unittest.TestCase):
+    def status(self, info, which="/usr/bin/tailscale"):
+        out = mock.Mock(stdout=json.dumps(info).encode("utf-8") if isinstance(info, dict) else info)
+        with mock.patch("shutil.which", return_value=which), mock.patch("os.path.isfile", return_value=False), \
+                mock.patch("subprocess.run", return_value=out) as run:
+            result = kanvas.tailscale_self()
+        self.assertEqual(run.call_args[0][0], [which, "status", "--json"])
+        return result
+
+    def test_reads_this_computers_address_and_name(self):
+        info = {"BackendState": "Running", "Self": {"DNSName": "Box.tail1.ts.net.", "TailscaleIPs": ["fd7a:115c:a1e0::7", "100.64.0.7"]},
+                "CurrentTailnet": {"MagicDNSEnabled": True}}
+        self.assertEqual(self.status(info), ("100.64.0.7", "box.tail1.ts.net", True))
+        info["CurrentTailnet"]["MagicDNSEnabled"] = False
+        self.assertEqual(self.status(info), ("100.64.0.7", "box.tail1.ts.net", False))
+        self.assertEqual(kanvas.tailscale_names("100.64.0.7", "box.tail1.ts.net"), {"100.64.0.7", "box.tail1.ts.net", "box"})
+
+    def test_says_what_is_missing(self):
+        with mock.patch("shutil.which", return_value=None), mock.patch("os.path.isfile", return_value=False):
+            with self.assertRaisesRegex(kanvas.KanvasError, "Tailscale is not installed"):
+                kanvas.tailscale_self()
+        with self.assertRaisesRegex(kanvas.KanvasError, r"not connected \(Stopped\)"):
+            self.status({"BackendState": "Stopped", "Self": {}})
+        with self.assertRaisesRegex(kanvas.KanvasError, "did not say"):
+            self.status(b"failed to connect to local tailscaled")
+        with self.assertRaisesRegex(kanvas.KanvasError, "no IPv4 address"):
+            self.status({"BackendState": "Running", "Self": {"TailscaleIPs": ["fd7a:115c:a1e0::7"]}})
 
 
 class LayoutTests(unittest.TestCase):

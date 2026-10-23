@@ -19,6 +19,7 @@ import re
 import shutil
 import socket
 import socketserver
+import subprocess
 import sys
 import threading
 import time
@@ -1518,6 +1519,9 @@ def page(title, body):
             f"<body>{body}</body></html>").encode("utf-8")
 
 
+LOCAL_NAMES = frozenset({"localhost", "127.0.0.1", "[::1]"})
+
+
 class BoardServer(ThreadingHTTPServer):
     """Serves every open board, each at /<name>/."""
 
@@ -1525,14 +1529,22 @@ class BoardServer(ThreadingHTTPServer):
     # On Windows SO_REUSEADDR lets two servers share a port.
     allow_reuse_address = os.name != "nt"
 
-    def __init__(self, address, path=None, check_host=True, quiet=False):
+    def __init__(self, address, path=None, hosts=LOCAL_NAMES, quiet=False, share=None):
+        """`hosts` are the names allowed in the Host header, or None for any. A server made with
+        `share` serves the boards of that one and cannot open boards itself."""
         super().__init__(address, BoardHandler)
-        self.check_host = check_host
+        self.hosts = hosts
         self.quiet = quiet
-        self.boards = {}  # name -> path, in the order the boards were opened
-        self.boards_lock = threading.Lock()
+        self.phone = []  # base URLs of the Tailscale listener, by name and by address
+        self.opens_boards = share is None
+        self.boards = share.boards if share else {}  # name -> path, in the order the boards were opened
+        self.boards_lock = share.boards_lock if share else threading.Lock()
         if path:
             self.add_board(path)
+
+    @property
+    def check_host(self):
+        return self.hosts is not None
 
     def server_bind(self):
         # HTTPServer.server_bind looks up the host's full name with socket.getfqdn,
@@ -1600,7 +1612,7 @@ class BoardHandler(BaseHTTPRequestHandler):
             return True
         host = (self.headers.get("Host") or "").strip().lower()
         name = host.split("]")[0] + "]" if host.startswith("[") else host.rsplit(":", 1)[0]
-        return name in ("localhost", "127.0.0.1", "[::1]")
+        return name.rstrip(".") in self.server.hosts
 
     def _route(self):
         """The request path as a list of parts: "/a/b/" gives ["a", "b", ""]."""
@@ -1670,6 +1682,8 @@ class BoardHandler(BaseHTTPRequestHandler):
             return self._error(403, "Host not allowed")
         if self._route() != ["api", "boards"]:
             return self._error(404, "Not found")
+        if not self.server.opens_boards:
+            return self._error(403, "Boards open only from the computer running Kanvas")
         text = self._read_json()
         if text is None:
             return
@@ -1686,7 +1700,10 @@ class BoardHandler(BaseHTTPRequestHandler):
         name = self.server.add_board(path)
         if not self.server.quiet:
             print(f"[{time.strftime('%H:%M:%S')}] opened {name}: {path}", flush=True)
-        self._send(200, json.dumps({"name": name, "url": f"/{quote(name)}/"}, ensure_ascii=False).encode("utf-8"))
+        info = {"name": name, "url": f"/{quote(name)}/"}
+        if self.server.phone:
+            info["phone"] = [f"{base}{quote(name)}/" for base in self.server.phone]
+        self._send(200, json.dumps(info, ensure_ascii=False).encode("utf-8"))
 
     def do_PUT(self):
         if not self._host_allowed():
@@ -1723,12 +1740,13 @@ class BoardHandler(BaseHTTPRequestHandler):
         self._send(200, data, headers={"ETag": etag_of(data)})
 
 
-def start_server(path, host="127.0.0.1", port=8765, quiet=False):
-    check_host = host in ("127.0.0.1", "localhost")
+def start_server(path, host="127.0.0.1", port=8765, quiet=False, also=()):
+    """Serve on the first free port from `port` on. `also` are more names to allow in the Host header."""
+    hosts = LOCAL_NAMES | set(also) if host in ("127.0.0.1", "localhost") else None
     last_error = None
     for p in range(port, port + 20):
         try:
-            return BoardServer((host, p), path, check_host, quiet)
+            return BoardServer((host, p), path, hosts, quiet)
         except OSError as e:
             busy = (errno.EADDRINUSE, errno.EACCES, getattr(errno, "WSAEADDRINUSE", -1), getattr(errno, "WSAEACCES", -1))
             if e.errno not in busy:
@@ -1768,12 +1786,14 @@ def find_running(port, host="127.0.0.1"):
 
 
 def join_running(url, path):
-    """Open the board at `path` in the Kanvas running at `url`; return the board's URL there."""
+    """Open the board at `path` in the Kanvas running at `url`; return the board's URL there,
+    and its URLs for phones on Tailscale (empty without Tailscale)."""
     body = json.dumps({"path": os.path.abspath(path)}).encode("utf-8")
     req = urllib.request.Request(url + "api/boards", body, {"Content-Type": "application/json"}, method="POST")
     try:
         with LOCAL.open(req, timeout=5) as r:
-            return url + json.loads(r.read().decode("utf-8"))["url"].lstrip("/")
+            info = json.loads(r.read().decode("utf-8"))
+            return url + info["url"].lstrip("/"), info.get("phone") or []
     except urllib.error.HTTPError as e:
         try:
             message = json.loads(e.read().decode("utf-8"))["error"]
@@ -1782,6 +1802,55 @@ def join_running(url, path):
         raise KanvasError(f"The Kanvas running at {url} did not open the board: {message}")
     except (OSError, ValueError, KeyError) as e:
         raise KanvasError(f"The Kanvas running at {url} did not answer: {e}")
+
+
+TAILSCALE_PATHS = (
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Tailscale", "tailscale.exe"),
+)
+
+
+def tailscale_self():
+    """This computer on Tailscale: (IPv4 address, DNS name or "", whether MagicDNS gives names)."""
+    exe = shutil.which("tailscale") or next((p for p in TAILSCALE_PATHS if os.path.isfile(p)), None)
+    if not exe:
+        raise KanvasError("Tailscale is not installed here. Get it from https://tailscale.com/download, "
+                          "sign in on this computer and on your phone, then run this again.")
+    try:
+        proc = subprocess.run([exe, "status", "--json"], capture_output=True, timeout=15)
+        status = json.loads(proc.stdout.decode("utf-8", "replace"))
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        raise KanvasError("Tailscale did not say this computer's address. Is it running? Try `tailscale status`.")
+    if status.get("BackendState") != "Running":
+        raise KanvasError(f"Tailscale is not connected ({status.get('BackendState') or 'unknown state'}). "
+                          "Connect it (`tailscale up`, or the Tailscale app), then run this again.")
+    me = status.get("Self") or {}
+    ips = [ip for ip in me.get("TailscaleIPs") or [] if "." in ip]
+    if not ips:
+        raise KanvasError("Tailscale gave this computer no IPv4 address; check `tailscale status`.")
+    name = (me.get("DNSName") or "").rstrip(".").lower()
+    magic = bool((status.get("CurrentTailnet") or {}).get("MagicDNSEnabled")) and bool(name)
+    return ips[0], name, magic
+
+
+def tailscale_names(ip, name):
+    """What a phone may type to reach this computer: its address, full name and short name."""
+    return {n for n in (ip, name, name.split(".")[0]) if n}
+
+
+def start_phone_server(server, ip, names):
+    """Serve `server`'s boards on this computer's Tailscale address too, on the same port."""
+    port = server.server_address[1]
+    try:
+        phone = BoardServer((ip, port), hosts=frozenset(names), quiet=server.quiet, share=server)
+    except OSError as e:
+        raise KanvasError(f"Could not listen on the Tailscale address {ip}:{port}: {e}")
+    threading.Thread(target=phone.serve_forever, daemon=True).start()
+    return phone
+
+
+def phone_line(urls):
+    return f"On your phone (Tailscale): {urls[0]}" + (f"  or  {urls[1]}" if len(urls) > 1 else "")
 
 
 def offer_board():
@@ -1813,27 +1882,49 @@ def cmd_serve(args):
             raise
     if not os.path.isfile(HTML_FILE):
         raise KanvasError("kanvas.html is missing next to kanvas.py")
+    local = args.host in ("127.0.0.1", "localhost")
+    if args.tailscale and not local:
+        raise KanvasError("Use --tailscale or --host, not both: --tailscale serves on this computer and on its Tailscale address.")
     # One Kanvas serves the boards of every project; a second `serve` hands its board to it and returns.
-    running = find_running(args.port, args.host) if args.port and args.host in ("127.0.0.1", "localhost") else None
+    running = find_running(args.port, args.host) if args.port and local else None
     if running:
         url, version = running
-        board_url = join_running(url, path)
+        board_url, phone_urls = join_running(url, path)
         print(f"Kanvas board: {path}")
         if hint := agent_copy_hint(path):
             print(hint)
         print(f"Opened in the Kanvas already running: {board_url}")
+        if phone_urls:
+            print(phone_line(phone_urls))
+        elif args.tailscale:
+            print("That Kanvas is not open to your phone. Stop it (Ctrl+C in its terminal) and run `kanvas serve --tailscale` there.")
         if version != VERSION:
             print(f"That Kanvas is {version} and this command is {VERSION}; to switch, stop it (Ctrl+C in its terminal) and run `kanvas serve` again.")
         if not args.no_open:
             webbrowser.open(board_url)
         return
-    server = start_server(path, args.host, args.port)
+    ts = tailscale_self() if args.tailscale else None
+    names = tailscale_names(ts[0], ts[1]) if ts else set()
+    server = start_server(path, args.host, args.port, also=names)
+    phone = None
+    try:
+        if ts:
+            phone = start_phone_server(server, ts[0], names)
+            port = server.server_address[1]
+            server.phone = [f"http://{h}:{port}/" for h in ([ts[1]] if ts[2] else []) + [ts[0]]]
+    except KanvasError:
+        server.server_close()
+        raise
     host, port = server.server_address[:2]
-    board_url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}/{quote(server.add_board(path))}/"
+    name = quote(server.add_board(path))
+    board_url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}/{name}/"
     print(f"Kanvas board: {path}")
     if hint := agent_copy_hint(path):
         print(hint)
     print(f"Open {board_url}  (Ctrl+C to stop)")
+    if server.phone:
+        print(phone_line([f"{base}{name}/" for base in server.phone]))
+        print("Anyone on your Tailscale network can open and edit your boards.")
     print("Boards of other projects open here too: run `kanvas serve` in them.")
     if not server.check_host:
         print("Warning: listening beyond localhost; anyone who can reach this port can edit the board.")
@@ -1844,6 +1935,9 @@ def cmd_serve(args):
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
+        if phone:
+            phone.shutdown()
+            phone.server_close()
         server.server_close()
 
 
@@ -1950,6 +2044,7 @@ def build_parser():
     p = add("serve", cmd_serve, "open the interactive board in your browser")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 for containers or remote machines")
+    p.add_argument("--tailscale", action="store_true", help="also open the boards to your phone and other devices on your Tailscale network")
     p.add_argument("--no-open", action="store_true", help="do not open a browser")
     p = add("init", cmd_init, "set up Kanvas in a project (never overwrites files)")
     p.add_argument("dir", nargs="?", help=f"project folder (default: the folder of the nearest {BOARD_FILE}, "
