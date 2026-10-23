@@ -2215,6 +2215,7 @@ function fitRoom() {
 }
 
 function fit(animate = true, maxZoom = 1) {
+  stopGlide();
   if (!lastLayout) return;
   const { vp, usable, w, h } = fitRoom();
   const W = lastLayout.width || 1, H = lastLayout.height || 1;
@@ -2242,14 +2243,56 @@ function fillScreen() {
     const k = zoomAtGap(gap);
     if (k >= bestK * 0.995) { best = gap; bestK = Math.max(k, bestK); }
   }
-  prefs.levelGap = best;
-  $("#spread").value = best;
+  glideTo(best);
+}
+
+// Moves to another spacing and the zoom that fills the screen with it, both at once: every frame lays the
+// graph out at a spacing in between, and the view keeps the same part of it in the middle.
+let glide = null;
+function glideTo(gap) {
+  stopGlide();
+  const from = { x: view.x, y: view.y, k: view.k }, gap0 = prefs.levelGap, size0 = { W: lastLayout.width, H: lastLayout.height };
+  prefs.levelGap = gap;
+  renderGraph();
+  fit(false, MAX_ZOOM);
+  const to = { x: view.x, y: view.y, k: view.k }, size1 = { W: lastLayout.width, H: lastLayout.height };
+  const { vp } = fitRoom(), cx = vp.width / 2, cy = vp.height / 2;
+  // Where the middle of the screen falls, as a share of the graph's size.
+  const u0 = (cx - from.x) / (from.k * size0.W), v0 = (cy - from.y) / (from.k * size0.H);
+  const u1 = (cx - to.x) / (to.k * size1.W), v1 = (cy - to.y) / (to.k * size1.H);
+  const done = () => { stopGlide(); prefs.levelGap = gap; $("#spread").value = gap; savePrefs(); renderGraph(); Object.assign(view, to); applyView(false); };
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches || gap === gap0) return done();
+  const start = performance.now(), ms = 450;
+  const frame = (now) => {
+    const p = Math.min(1, (now - start) / ms), e = p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2;
+    if (p >= 1) return done();
+    prefs.levelGap = gap0 + (gap - gap0) * e;
+    $("#spread").value = prefs.levelGap;
+    renderGraph();
+    const k = from.k * (to.k / from.k) ** e, W = lastLayout.width, H = lastLayout.height;
+    Object.assign(view, { k, x: cx - (u0 + (u1 - u0) * e) * k * W, y: cy - (v0 + (v1 - v0) * e) * k * H });
+    applyView(false);
+    glide.raf = requestAnimationFrame(frame);
+  };
+  prefs.levelGap = gap0;
+  renderGraph();
+  Object.assign(view, from);
+  // Hidden tabs get no animation frames, so the end is also on a timer.
+  glide = { raf: requestAnimationFrame(frame), timer: setTimeout(done, ms + 200) };
+}
+// Stopping halfway keeps the spacing reached so far.
+function stopGlide() {
+  if (!glide) return;
+  cancelAnimationFrame(glide.raf);
+  clearTimeout(glide.timer);
+  glide = null;
+  prefs.levelGap = clamp(Math.round(prefs.levelGap / 10) * 10, LEVEL_GAP.min, LEVEL_GAP.max);
+  $("#spread").value = prefs.levelGap;
   savePrefs();
-  render();
-  fit(true, MAX_ZOOM);
 }
 
 function zoomAt(factor, cx, cy) {
+  stopGlide();
   const k = clamp(view.k * factor, 0.2, MAX_ZOOM);
   const wx = (cx - view.x) / view.k, wy = (cy - view.y) / view.k;
   view.k = k;
@@ -3696,6 +3739,7 @@ function toggleArrange() {
 
 // Keeps the point at the middle of the viewport in place while the graph stretches along the flow.
 function setLevelGap(gap) {
+  stopGlide();
   gap = clamp(Math.round(gap / 10) * 10, LEVEL_GAP.min, LEVEL_GAP.max);
   if (gap === prefs.levelGap) return;
   const vertical = prefs.orient === "vertical", axis = vertical ? "y" : "x", cell = vertical ? CH : CW;
