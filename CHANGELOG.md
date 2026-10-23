@@ -13,6 +13,7 @@ Kanvas runs without Obsidian. The board is a JSON file, agents use a new CLI, an
 - Add `kanvas.py serve`: live two-way sync between the browser, the file and your agents, with compare-and-swap saves
 - One Kanvas serves the boards of all your projects: `serve` in a second project opens its board in the Kanvas already running and gives the terminal back. Each board has its own address, named after its project folder; switch boards from the menu on the board's name or with Shift+← and Shift+→, or open each in a tab of its own
 - Open your boards on your phone over Tailscale: Open on your phone… in the board menu shows a QR code to scan, and `kanvas serve --tailscale` prints one in the terminal; Kanvas listens only on this computer and its Tailscale address, answers only to this computer's names, and opens new boards only from this computer
+- Kanvas remembers its open boards and phone access in your user folder and reopens them on the next start; `kanvas service install` starts it when you log in (a systemd user service on Linux, a LaunchAgent on macOS, a logon task on Windows), serving those boards with `kanvas serve --saved`
 - Open `kanvas.html` directly in Chrome or Edge to edit `kanvas.json` in place, or export a read-only snapshot with `kanvas.py export`
 - Replace `canvas-tool.py` with `kanvas.py`; boards live in `kanvas.json` with stable formatting for clean diffs, which the CLI and the browser write byte for byte the same
 - `finish` requires a summary, stored as a note, so task descriptions stay as written (#10)

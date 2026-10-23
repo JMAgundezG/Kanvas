@@ -5,7 +5,7 @@
 
 COMMAND defaults to `kanvas` on PATH. In a fresh temporary project the script
 checks the version, the help, the error outside a board, `init`, commands run
-from a subfolder, `export`, `serve` (with a second project joining it), the copy of kanvas.py that `init` installs
+from a subfolder, `export`, `serve` (with a second project joining it, then `--saved` reopening both), the copy of kanvas.py that `init` installs
 for agents, and the hint when that copy is out of date. It stops with exit
 code 1 at the first failure.
 """
@@ -29,6 +29,7 @@ from kanvas import VERSION  # noqa: E402
 TITLE = "Installed check é"
 ENV = dict(os.environ, KANVAS_AGENT="check")
 ENV.pop("KANVAS_BOARD", None)
+ENV.pop("KANVAS_STATE_DIR", None)
 
 
 class CheckFailed(Exception):
@@ -69,25 +70,39 @@ def get(url):
         return response.read().decode("utf-8")
 
 
-def check_serve(kanvas, cwd, log_path, other):
-    """Serve the project from `cwd`, then the one in `other`, which must open in the same Kanvas."""
+def start_serving(kanvas, cwd, log_path, *args):
+    """Start `kanvas serve` on a free port; return the process, the port and the open boards."""
     port = free_port()
     with open(log_path, "w", encoding="utf-8") as log:
-        server = subprocess.Popen(kanvas + ["serve", "--no-open", "--port", str(port)],
+        server = subprocess.Popen(kanvas + ["serve", "--no-open", "--port", str(port), *args],
                                   cwd=cwd, env=dict(ENV, PYTHONUNBUFFERED="1"), stdout=log, stderr=subprocess.STDOUT)
+    deadline = time.time() + 20
+    while True:
+        try:
+            return server, port, json.loads(get(f"http://127.0.0.1:{port}/api/boards"))["boards"]
+        except OSError as e:
+            if server.poll() is not None or time.time() > deadline:
+                state = "exited with " + str(server.returncode) if server.poll() is not None else "still running"
+                stop(server)
+                with open(log_path, encoding="utf-8", errors="replace") as f:
+                    raise CheckFailed(f"serve did not answer on port {port} ({state}); last error: {e!r}\n"
+                                      f"serve printed:\n{f.read()}")
+            time.sleep(0.2)
+
+
+def stop(server):
+    server.terminate()
     try:
-        deadline = time.time() + 20
-        while True:
-            try:
-                boards = json.loads(get(f"http://127.0.0.1:{port}/api/boards"))["boards"]
-                break
-            except OSError as e:
-                if server.poll() is not None or time.time() > deadline:
-                    state = "exited with " + str(server.returncode) if server.poll() is not None else "still running"
-                    with open(log_path, encoding="utf-8", errors="replace") as f:
-                        raise CheckFailed(f"serve did not answer on port {port} ({state}); last error: {e!r}\n"
-                                          f"serve printed:\n{f.read()}")
-                time.sleep(0.2)
+        server.wait(10)
+    except subprocess.TimeoutExpired:
+        server.kill()
+        server.wait()
+
+
+def check_serve(kanvas, cwd, log_path, other):
+    """Serve the project from `cwd`, then the one in `other`, which must open in the same Kanvas."""
+    server, port, boards = start_serving(kanvas, cwd, log_path)
+    try:
         base = f"http://127.0.0.1:{port}/{boards[0]['name']}/"
         board = json.loads(get(base + "api/board"))
         if TITLE not in [t["title"] for t in board["tasks"]]:
@@ -103,12 +118,12 @@ def check_serve(kanvas, cwd, log_path, other):
         json.loads(get(f"http://127.0.0.1:{port}/{boards[1]['name']}/api/board"))
         expect(get(f"http://127.0.0.1:{port}/"), boards[1]["name"], "the list of open boards")
     finally:
-        server.terminate()
-        try:
-            server.wait(10)
-        except subprocess.TimeoutExpired:
-            server.kill()
-            server.wait()
+        stop(server)
+
+    server, _, again = start_serving(kanvas, cwd, log_path, "--saved")
+    stop(server)
+    if [b["path"] for b in again] != [b["path"] for b in boards]:
+        raise CheckFailed(f"serve --saved did not reopen the boards: {again}, expected {boards}")
 
 
 def check(kanvas, project):
@@ -155,7 +170,10 @@ def check(kanvas, project):
         check_serve(kanvas, sub, os.path.join(project, "serve.log"), other)
     finally:
         shutil.rmtree(other, ignore_errors=True)
-    ok("serve answers with the page and the board, and serve in a second project opens it in the same Kanvas")
+    ok("serve answers with the page and the board, serve in a second project opens it in the same Kanvas, "
+       "and serve --saved reopens both")
+    expect(run(kanvas + ["service", "status"], project), "Remembered boards (", "service status")
+    ok("service status lists the remembered boards")
 
     copy = os.path.join(project, ".agents", "skills", "kanvas", "kanvas.py")
     expect(run([sys.executable, copy, "status"], project), TITLE, "the project copy of kanvas.py")
@@ -180,6 +198,7 @@ def main():
         return 1
     print(f"Checking {exe}")
     project = tempfile.mkdtemp(prefix="kanvas-installed-")
+    ENV["KANVAS_STATE_DIR"] = os.path.join(project, "state")
     try:
         check([exe], project)
     except CheckFailed as e:

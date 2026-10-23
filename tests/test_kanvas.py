@@ -1,6 +1,7 @@
 """Tests for kanvas.py. Run with: python -m unittest discover -s tests -v"""
 
 import argparse
+import atexit
 import contextlib
 import http.client
 import io
@@ -24,6 +25,10 @@ import kanvas  # noqa: E402
 
 # The CLI processes the tests start inherit the environment; they must never reach a real board.
 os.environ.pop("KANVAS_BOARD", None)
+# Nor the boards a real Kanvas remembers between runs.
+STATE_DIR = tempfile.mkdtemp(prefix="kanvas-state-")
+os.environ["KANVAS_STATE_DIR"] = STATE_DIR
+atexit.register(shutil.rmtree, STATE_DIR, True)
 
 SCRIPT = os.path.join(ROOT, "kanvas.py")
 
@@ -1198,6 +1203,19 @@ class ServerTests(TempBoard):
         port = self.phone_server()
         status, _ = self.phone_request(port, "POST", f"/{self.name}/api/phone", "box", b"{}", {"Content-Type": "application/json"})
         self.assertEqual(status, 403)
+        status, _ = self.phone_request(port, "DELETE", f"/{self.name}/api/phone", "box", b"{}", {"Content-Type": "application/json"})
+        self.assertEqual(status, 403)
+
+    def test_the_page_closes_the_boards_to_phones_again(self):
+        _, _, _, listener = self.open_to_phone()
+        self.assertEqual(self.request("DELETE", f"/{self.name}/api/phone", b"{}", {"Content-Type": "text/plain"})[0], 415)
+        status, _, body = self.request("DELETE", f"/{self.name}/api/phone", b"{}", {"Content-Type": "application/json"})
+        self.assertEqual((status, json.loads(body)), (200, {"urls": [], "qr": None}))
+        listener.shutdown.assert_called_once_with()
+        listener.server_close.assert_called_once_with()
+        self.assertEqual(self.request("GET", self.api, headers={"Host": "box.tail1.ts.net"})[0], 403)
+        self.assertEqual(self.request("GET", self.api)[0], 200)
+        self.assertEqual(self.request("DELETE", f"/{self.name}/api/phone", b"{}", {"Content-Type": "application/json"})[0], 200)
 
     def test_qr_codes_hold_the_address(self):
         m = kanvas.qr_matrix("http://box.tail1.ts.net:8765/kanvas/")
@@ -1291,6 +1309,158 @@ class ServerTests(TempBoard):
         self.assertEqual(text, kanvas.dumps(kanvas.parse_board(text)))
 
 
+class RememberTests(TempBoard):
+    """A Kanvas started again reopens the boards and the phone access it had."""
+
+    def setUp(self):
+        super().setUp()
+        self.state = os.path.join(self.dir, "state", "boards.json")
+
+    def start(self, path=None):
+        server = kanvas.start_server(path, "127.0.0.1", 0, quiet=True, remember=self.state)
+        self.addCleanup(server.server_close)
+        return server
+
+    def other(self, folder):
+        path = os.path.join(self.dir, folder, "kanvas.json")
+        os.makedirs(os.path.dirname(path))
+        write_board(path, self.initial_board())
+        return path
+
+    def remembered(self):
+        with open(self.state, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_open_boards_come_back_after_a_restart(self):
+        first = self.start(self.path)
+        other, gone = self.other("other"), self.other("gone")
+        first.add_board(other)
+        first.add_board(gone)
+        self.assertEqual(self.remembered(), {"boards": [self.path, other, gone], "phone": False})
+        first.server_close()
+        os.remove(gone)
+        again = self.start()
+        self.assertEqual([(b["name"], b["path"]) for b in again.board_list()], [(kanvas.board_name(self.path), self.path), ("other", other)])
+        self.assertFalse(again.phone_wanted)
+        self.assertEqual(self.remembered()["boards"], [self.path, other])
+
+    def test_a_board_served_again_keeps_its_place(self):
+        other = self.other("other")
+        self.start(self.path).add_board(other)
+        self.assertEqual([b["path"] for b in self.start(other).board_list()], [self.path, other])
+
+    def test_only_boards_are_reopened(self):
+        notes = os.path.join(self.dir, "notes.json")
+        with open(notes, "w") as f:
+            f.write('{"hello": 1}')
+        for state in ('{"boards": [%s, 7, null], "phone": "yes"}' % json.dumps(notes), "[]", "not json", '{"boards": "x"}'):
+            with self.subTest(state=state):
+                os.makedirs(os.path.dirname(self.state), exist_ok=True)
+                with open(self.state, "w") as f:
+                    f.write(state)
+                server = self.start()
+                self.assertEqual(server.board_list(), [])
+                self.assertFalse(server.phone_wanted)
+                server.server_close()
+
+    def test_phone_access_is_remembered(self):
+        server = self.start(self.path)
+        with mock.patch.object(kanvas, "tailscale_self", return_value=("100.64.0.7", "box.tail1.ts.net", True)), \
+                mock.patch.object(kanvas, "BoardServer"):
+            server.open_to_phone()
+        self.assertTrue(self.remembered()["phone"])
+        self.assertTrue(self.start().phone_wanted)
+        server.close_to_phone()
+        self.assertFalse(self.remembered()["phone"])
+
+    def test_phone_access_waits_for_tailscale(self):
+        server = self.start(self.path)
+        answers = [kanvas.KanvasError("Tailscale is not connected (Stopped)."), ("100.64.0.7", "box.tail1.ts.net", True)]
+        with mock.patch.object(kanvas, "tailscale_self", side_effect=answers), mock.patch.object(kanvas, "BoardServer"):
+            server.open_to_phone_soon(tries=3, wait=0.01)
+            for _ in range(200):
+                if server.phone:
+                    break
+                time.sleep(0.01)
+        self.assertEqual(server.phone[-1], f"http://100.64.0.7:{server.server_address[1]}/")
+        server.phone_listener = None
+
+    def test_the_state_lives_in_the_users_own_folders(self):
+        cases = (("posix", "linux", {"XDG_STATE_HOME": "/x/state"}, "/x/state/kanvas/boards.json"),
+                 ("posix", "linux", {}, os.path.expanduser("~/.local/state/kanvas/boards.json")),
+                 ("posix", "darwin", {}, os.path.expanduser("~/Library/Application Support/Kanvas/boards.json")),
+                 ("nt", "win32", {"LOCALAPPDATA": "C:\\Users\\a\\AppData\\Local"}, os.path.join("C:\\Users\\a\\AppData\\Local", "Kanvas", "boards.json")),
+                 ("posix", "linux", {"KANVAS_STATE_DIR": "/elsewhere"}, "/elsewhere/boards.json"))
+        for name, platform, env, expected in cases:
+            with self.subTest(platform=platform, env=env), mock.patch.dict(os.environ, env, clear=False), \
+                    mock.patch.object(kanvas.os, "name", name), mock.patch.object(kanvas.sys, "platform", platform):
+                if "KANVAS_STATE_DIR" not in env:
+                    os.environ.pop("KANVAS_STATE_DIR")
+                if not env:
+                    os.environ.pop("XDG_STATE_HOME", None)
+                self.assertEqual(kanvas.state_file(), expected)
+
+
+class ServiceTests(unittest.TestCase):
+    """`kanvas service` starts `kanvas serve --saved` at login on each system."""
+
+    CMD = ["/home/a b/.local/bin/kanvas", "serve", "--saved", "--no-open"]
+
+    def test_the_systemd_unit_quotes_the_command(self):
+        unit = kanvas.systemd_unit(["/x/100% sure/kanvas", 'say "hi"'])
+        self.assertIn('ExecStart="/x/100%% sure/kanvas" "say \\"hi\\""\n', unit)
+        self.assertIn("Restart=on-failure", unit)
+        self.assertIn("WantedBy=default.target", unit)
+
+    def test_the_launch_agent_runs_at_login(self):
+        import plistlib
+        plist = plistlib.loads(kanvas.launchd_plist(self.CMD))
+        self.assertEqual((plist["Label"], plist["ProgramArguments"], plist["RunAtLoad"]), ("kanvas", self.CMD, True))
+
+    def test_the_windows_task_runs_at_logon(self):
+        import xml.etree.ElementTree as ET
+        with mock.patch.dict(os.environ, {"USERDOMAIN": "PC", "USERNAME": "a&b"}):
+            xml = kanvas.windows_task(["C:\\Py thon\\pythonw.exe", "C:\\k\\kanvas.py", "serve", "--saved"])
+        ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
+        root = ET.fromstring(xml.split("\n", 1)[1])
+        self.assertEqual(root.find(".//t:LogonTrigger/t:UserId", ns).text, "PC\\a&b")
+        self.assertEqual(root.find(".//t:Exec/t:Command", ns).text, "C:\\Py thon\\pythonw.exe")
+        self.assertEqual(root.find(".//t:Exec/t:Arguments", ns).text, "C:\\k\\kanvas.py serve --saved")
+
+    def test_a_kanvas_run_by_uvx_is_not_installed_as_a_service(self):
+        with mock.patch.object(kanvas, "INSTALLED", True), \
+                mock.patch.object(kanvas.sys, "prefix", os.path.join(os.sep, "c", "uv", "archive-v0", "x")):
+            with self.assertRaisesRegex(kanvas.KanvasError, "uv tool install kanvas-board"):
+                kanvas.service_command()
+
+    @unittest.skipIf(os.name == "nt" or sys.platform == "darwin", "the systemd service")
+    def test_install_and_uninstall_on_linux(self):
+        config = tempfile.mkdtemp(prefix="kanvas-config-")
+        self.addCleanup(shutil.rmtree, config, True)
+        unit = os.path.join(config, "systemd", "user", "kanvas.service")
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}), \
+                mock.patch.object(kanvas, "run_quiet", return_value=(0, "")) as run, \
+                mock.patch.object(kanvas, "find_running", return_value=None), mock.patch.object(sys, "stdout", out):
+            self.assertEqual(kanvas.main(["service", "install", "--tailscale"]), 0)
+            with open(unit) as f:
+                self.assertIn("serve --saved --no-open", f.read().replace('"', ""))
+            self.assertEqual(run.call_args_list, [mock.call(["systemctl", "--user", "daemon-reload"]),
+                                                  mock.call(["systemctl", "--user", "enable", "--now", "kanvas.service"])])
+            with open(kanvas.state_file()) as f:
+                self.assertTrue(json.load(f)["phone"])
+            run.return_value = (1, "Failed to connect to bus")
+            with self.assertRaisesRegex(kanvas.KanvasError, "Failed to connect to bus"):
+                kanvas.service_install(False)
+            run.return_value = (0, "")
+            self.assertEqual(kanvas.main(["service", "uninstall"]), 0)
+            self.assertFalse(os.path.exists(unit))
+        os.remove(kanvas.state_file())
+        self.assertIn("Kanvas now starts when you log in", out.getvalue())
+        self.assertIn("Kanvas no longer starts when you log in.", out.getvalue())
+
+
+
 class Terminal(io.StringIO):
     def isatty(self):
         return True
@@ -1317,7 +1487,8 @@ class ServeWithoutBoardTests(unittest.TestCase):
     def serve(self, answer, *args, env=None, start=None):
         """Runs `serve` at a pretend terminal, answering its question with `answer` (text or an exception).
         `start` stands in for start_server."""
-        self.server = mock.Mock(server_address=("127.0.0.1", 8765), check_host=True, phone=[], quiet=False, **{"add_board.return_value": "project"})
+        self.server = mock.Mock(server_address=("127.0.0.1", 8765), check_host=True, phone=[], quiet=False, phone_wanted=False,
+                                **{"add_board.return_value": "project", "board_list.return_value": []})
         stdin, stdout, stderr = mock.Mock(), Terminal(), io.StringIO()
         stdin.isatty.return_value = True
         reply = {"return_value": answer} if isinstance(answer, str) else {"side_effect": answer}
@@ -1401,16 +1572,30 @@ class ServeWithoutBoardTests(unittest.TestCase):
                 self.made.return_value.server_close.assert_called_once_with()
                 self.made_patch.stop()
 
-    def real_server(self, path, host, port):
+    def real_server(self, path, host, port, remember=None):
         """A BoardServer that does not listen, whose phone listener is a stand-in."""
         with mock.patch.object(socketserver.TCPServer, "server_bind"), mock.patch.object(socketserver.TCPServer, "server_activate"):
             server = kanvas.BoardServer((host, port), path, quiet=True)
         server.server_address = ("127.0.0.1", 8765)
+        server.phone_wanted = False
         server.serve_forever = lambda: None
         self.made_patch = mock.patch.object(kanvas, "BoardServer")
         self.made = self.made_patch.start()
         self.addCleanup(mock.patch.stopall)
         return server
+
+    def test_saved_serves_the_remembered_boards_without_a_project(self):
+        os.chdir(self.dir)
+        code, out, err = self.serve("n", "--saved")
+        self.assertEqual(code, 0, err)
+        self.ask.assert_not_called()
+        self.assertIsNone(self.start.call_args[0][0])
+        self.assertEqual(self.start.call_args[1]["remember"], kanvas.state_file())
+        self.assertIn("Open http://127.0.0.1:8765/  (Ctrl+C to stop)", out)
+        with mock.patch.object(kanvas, "find_running", return_value=("http://127.0.0.1:8765/", kanvas.VERSION)), \
+                mock.patch.object(sys, "stdout", io.StringIO()) as stdout:
+            self.assertEqual(kanvas.main(["serve", "--saved", "--no-open"]), 0)
+        self.assertEqual(stdout.getvalue(), "Kanvas already runs at http://127.0.0.1:8765/\n")
 
     def test_tailscale_and_host_do_not_mix(self):
         top = self.project()

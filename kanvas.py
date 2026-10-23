@@ -1713,6 +1713,19 @@ def page(title, body):
 LOCAL_NAMES = frozenset({"localhost", "127.0.0.1", "[::1]"})
 
 
+def state_file():
+    """Where Kanvas remembers the open boards between runs: the user's own application state folder."""
+    base = os.environ.get("KANVAS_STATE_DIR")
+    if not base:
+        if os.name == "nt":
+            base = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser(r"~\AppData\Local"), "Kanvas")
+        elif sys.platform == "darwin":
+            base = os.path.expanduser("~/Library/Application Support/Kanvas")
+        else:
+            base = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "kanvas")
+    return os.path.join(base, "boards.json")
+
+
 class BoardServer(ThreadingHTTPServer):
     """Serves every open board, each at /<name>/."""
 
@@ -1720,12 +1733,14 @@ class BoardServer(ThreadingHTTPServer):
     # On Windows SO_REUSEADDR lets two servers share a port.
     allow_reuse_address = os.name != "nt"
 
-    def __init__(self, address, path=None, hosts=LOCAL_NAMES, quiet=False, share=None):
+    def __init__(self, address, path=None, hosts=LOCAL_NAMES, quiet=False, share=None, remember=None):
         """`hosts` are the names allowed in the Host header, or None for any. A server made with
-        `share` serves the boards of that one and cannot open boards itself."""
+        `share` serves the boards of that one and cannot open boards itself. With `remember`, a
+        file path, the open boards and whether phones may connect are kept there for the next start."""
         super().__init__(address, BoardHandler)
         self.hosts = hosts
         self.quiet = quiet
+        self.remember = remember
         self.main = share or self
         self.opens_boards = share is None
         self.phone = []  # base URLs of the Tailscale listener, by name and by address
@@ -1758,14 +1773,43 @@ class BoardServer(ThreadingHTTPServer):
             # `tailscale serve` passes these names on to this computer's own address.
             if self.hosts is not None:
                 self.hosts = self.hosts | names
+            self.phone_names = names
             self.phone = [f"http://{h}:{port}/" for h in ([name] if magic else []) + [ip]]
-            return self.phone
+        self.save_state()
+        return self.phone
 
-    def server_close(self):
+    def open_to_phone_soon(self, tries=20, wait=15):
+        """Open to phones in the background, retrying while Tailscale is still starting, as after a login."""
+        def run():
+            for i in range(tries):
+                try:
+                    urls = self.open_to_phone()
+                except KanvasError as e:
+                    if i == tries - 1:
+                        print(f"Could not open Kanvas to your phone: {e}", file=sys.stderr, flush=True)
+                    time.sleep(wait)
+                    continue
+                if not self.quiet:
+                    print(f"[{time.strftime('%H:%M:%S')}] opened to phones on Tailscale: {'  or  '.join(urls)}", flush=True)
+                return
+        threading.Thread(target=run, daemon=True).start()
+
+    def close_to_phone(self):
+        with self.phone_lock:
+            self._stop_phone()
+            if self.hosts is not None:
+                self.hosts = self.hosts - getattr(self, "phone_names", set()) | LOCAL_NAMES
+            self.phone = []
+        self.save_state()
+
+    def _stop_phone(self):
         if self.phone_listener:
             self.phone_listener.shutdown()
             self.phone_listener.server_close()
             self.phone_listener = None
+
+    def server_close(self):
+        self._stop_phone()
         super().server_close()
 
     def server_bind(self):
@@ -1774,7 +1818,7 @@ class BoardServer(ThreadingHTTPServer):
         socketserver.TCPServer.server_bind(self)
         self.server_name, self.server_port = self.server_address[:2]
 
-    def add_board(self, path):
+    def add_board(self, path, save=True):
         """Open the board at `path` and return its name. A board that is already open keeps its name."""
         path = os.path.abspath(path)
         with self.boards_lock:
@@ -1786,7 +1830,37 @@ class BoardServer(ThreadingHTTPServer):
             while name in self.boards or name == "api":
                 name, n = f"{base}-{n}", n + 1
             self.boards[name] = path
-            return name
+        if save:
+            self.save_state()
+        return name
+
+    def save_state(self):
+        if not self.remember:
+            return
+        with self.boards_lock:
+            state = {"boards": list(self.boards.values()), "phone": bool(self.phone)}
+        try:
+            os.makedirs(os.path.dirname(self.remember), exist_ok=True)
+            write_text_atomic(self.remember, json.dumps(state, indent=2, ensure_ascii=False) + "\n")
+        except OSError as e:
+            print(f"Could not remember the open boards in {self.remember}: {e}", file=sys.stderr)
+
+    def restore(self):
+        """Open the boards remembered from the last run that are still boards; return whether phones could connect then."""
+        try:
+            state = json.loads(read_text_file(self.remember))
+        except (OSError, ValueError):
+            return False
+        boards = state.get("boards") if isinstance(state, dict) else None
+        for path in boards if isinstance(boards, list) else []:
+            try:
+                if isinstance(path, str) and "tasks" in json.loads(read_text_file(path)):
+                    load_board(path)
+                    self.add_board(path, save=False)
+            except (KanvasError, OSError, ValueError):
+                continue
+        self.save_state()
+        return isinstance(state, dict) and state.get("phone") is True
 
     def board_path(self, name):
         with self.boards_lock:
@@ -1863,7 +1937,7 @@ class BoardHandler(BaseHTTPRequestHandler):
                 return self._redirect(f"/{quote(boards[0]['name'])}/")
             links = "".join(f'<a class="board" href="/{quote(b["name"])}/">{escape(b["title"])}<small>{escape(b["path"])}</small></a>'
                             for b in boards)
-            body = (f"<h1>Kanvas</h1>{links}" if boards else "<h1>Kanvas</h1><p>No boards are open.</p>")
+            body = (f"<h1>Kanvas</h1>{links}" if boards else "<h1>Kanvas</h1><p>No boards are open. Run <code>kanvas serve</code> in a project to open its board here.</p>")
             body += "<p><small>Run <code>kanvas serve</code> in a project to open its board here.</small></p>"
             return self._send(200, page("Kanvas", body), "text/html; charset=utf-8")
         if parts == ["api", "boards"]:
@@ -1949,6 +2023,23 @@ class BoardHandler(BaseHTTPRequestHandler):
             info["phone"] = [f"{base}{quote(name)}/" for base in self.server.phone]
         self._send(200, json.dumps(info, ensure_ascii=False).encode("utf-8"))
 
+    def do_DELETE(self):
+        """Closes Kanvas to phones again."""
+        if not self._host_allowed():
+            return self._error(403, "Host not allowed")
+        parts = self._route()
+        if parts[1:] != ["api", "phone"] or self.server.board_path(parts[0]) is None:
+            return self._error(404, "Not found")
+        if not self.server.opens_boards:
+            return self._error(403, "Only the computer running Kanvas can close it to phones")
+        if not (self.headers.get("Content-Type") or "").startswith("application/json"):
+            return self._error(415, "Expected application/json")
+        if self.server.phone:
+            self.server.close_to_phone()
+            if not self.server.quiet:
+                print(f"[{time.strftime('%H:%M:%S')}] closed to phones", flush=True)
+        self._phone(parts[0])
+
     def do_PUT(self):
         if not self._host_allowed():
             return self._error(403, "Host not allowed")
@@ -1984,12 +2075,18 @@ class BoardHandler(BaseHTTPRequestHandler):
         self._send(200, data, headers={"ETag": etag_of(data)})
 
 
-def start_server(path, host="127.0.0.1", port=8765, quiet=False):
+def start_server(path, host="127.0.0.1", port=8765, quiet=False, remember=None):
+    """Serve the board at `path` (or none) on the first free port from `port` on. With `remember`,
+    the boards open last time come back first, and `phone_wanted` says whether phones could connect."""
     hosts = LOCAL_NAMES if host in ("127.0.0.1", "localhost") else None
     last_error = None
     for p in range(port, port + 20):
         try:
-            return BoardServer((host, p), path, hosts, quiet)
+            server = BoardServer((host, p), None, hosts, quiet, remember=remember)
+            server.phone_wanted = server.restore() if remember else False
+            if path:
+                server.add_board(path)
+            return server
         except OSError as e:
             busy = (errno.EADDRINUSE, errno.EACCES, getattr(errno, "WSAEADDRINUSE", -1), getattr(errno, "WSAEACCES", -1))
             if e.errno not in busy:
@@ -2112,14 +2209,17 @@ def offer_board():
 
 
 def cmd_serve(args):
-    try:
-        path = board_path(args)
-    except KanvasError:
-        if getattr(args, "board", None) or os.environ.get("KANVAS_BOARD"):
-            raise
-        path = offer_board()
-        if not path:
-            raise
+    if args.saved:
+        path = None
+    else:
+        try:
+            path = board_path(args)
+        except KanvasError:
+            if getattr(args, "board", None) or os.environ.get("KANVAS_BOARD"):
+                raise
+            path = offer_board()
+            if not path:
+                raise
     if not os.path.isfile(HTML_FILE):
         raise KanvasError("kanvas.html is missing next to kanvas.py")
     local = args.host in ("127.0.0.1", "localhost")
@@ -2127,6 +2227,9 @@ def cmd_serve(args):
         raise KanvasError("Use --tailscale or --host, not both: --tailscale serves on this computer and on its Tailscale address.")
     # One Kanvas serves the boards of every project; a second `serve` hands its board to it and returns.
     running = find_running(args.port, args.host) if args.port and local else None
+    if running and not path:
+        print(f"Kanvas already runs at {running[0]}")
+        return
     if running:
         url, version = running
         board_url, phone_urls = join_running(url, path)
@@ -2143,22 +2246,31 @@ def cmd_serve(args):
         if not args.no_open:
             webbrowser.open(board_url)
         return
-    server = start_server(path, args.host, args.port)
+    server = start_server(path, args.host, args.port, remember=state_file() if local else None)
     if args.tailscale:
         try:
             server.open_to_phone()
         except KanvasError:
             server.server_close()
             raise
+    elif server.phone_wanted:
+        server.open_to_phone_soon()
     host, port = server.server_address[:2]
-    name = quote(server.add_board(path))
-    board_url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}/{name}/"
-    print(f"Kanvas board: {path}")
-    if hint := agent_copy_hint(path):
-        print(hint)
+    base_url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}/"
+    if path:
+        name = quote(server.add_board(path))
+        board_url = f"{base_url}{name}/"
+        print(f"Kanvas board: {path}")
+        if hint := agent_copy_hint(path):
+            print(hint)
+    else:
+        name, board_url = "", base_url
+    others = [b["name"] for b in server.board_list() if b["name"] != unquote(name)]
     print(f"Open {board_url}  (Ctrl+C to stop)")
+    if others:
+        print(f"Also open from last time: {', '.join(others)}")
     if server.phone:
-        print_phone([f"{base}{name}/" for base in server.phone])
+        print_phone([f"{base}{name}/" if name else base for base in server.phone])
     print("Boards of other projects open here too: run `kanvas serve` in them.")
     if not server.check_host:
         print("Warning: listening beyond localhost; anyone who can reach this port can edit the board.")
@@ -2170,6 +2282,164 @@ def cmd_serve(args):
         print("\nStopped.")
     finally:
         server.server_close()
+
+
+# ---------------------------------------------------------------------------
+# Background service: Kanvas starts when you log in
+# ---------------------------------------------------------------------------
+
+SERVICE_NAME = "kanvas"  # systemd unit, launchd label and Windows task
+
+
+def service_command():
+    """The command a login service runs: this Kanvas, serving the boards open last time."""
+    if INSTALLED and f"{os.sep}archive-v" in sys.prefix:
+        raise KanvasError("This kanvas runs from uvx's temporary cache, which a service cannot rely on. "
+                          "Install it with `uv tool install kanvas-board`, then run `kanvas service install`.")
+    args = ["serve", "--saved", "--no-open"]
+    if os.name == "nt":
+        windowless = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        return [windowless if os.path.isfile(windowless) else sys.executable, os.path.abspath(__file__)] + args
+    installed = shutil.which("kanvas") if INSTALLED else None
+    return ([installed] if installed else [sys.executable, os.path.abspath(__file__)]) + args
+
+
+def run_quiet(cmd):
+    """Run a system command; return (exit code, its output)."""
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 1, str(e)
+    return proc.returncode, (proc.stdout + proc.stderr).decode("utf-8", "replace").strip()
+
+
+def systemd_unit(cmd):
+    quoted = " ".join('"' + a.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%") + '"' for a in cmd)
+    return ("[Unit]\nDescription=Kanvas task boards\n\n"
+            f"[Service]\nExecStart={quoted}\nEnvironment=PYTHONUNBUFFERED=1\nRestart=on-failure\nRestartSec=10\n\n"
+            "[Install]\nWantedBy=default.target\n")
+
+
+def launchd_plist(cmd):
+    import plistlib
+    log = os.path.expanduser("~/Library/Logs/Kanvas.log")
+    return plistlib.dumps({"Label": SERVICE_NAME, "ProgramArguments": cmd, "RunAtLoad": True,
+                           "KeepAlive": {"SuccessfulExit": False}, "StandardOutPath": log, "StandardErrorPath": log})
+
+
+def windows_task(cmd):
+    from xml.sax.saxutils import escape as xml
+    user = f"{os.environ.get('USERDOMAIN', '')}\\{os.environ.get('USERNAME', '')}".lstrip("\\")
+    args = subprocess.list2cmdline(cmd[1:])
+    return ('<?xml version="1.0" encoding="UTF-16"?>\n'
+            '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">'
+            "<RegistrationInfo><Description>Kanvas task boards</Description></RegistrationInfo>"
+            f"<Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{xml(user)}</UserId></LogonTrigger></Triggers>"
+            '<Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>'
+            "<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>"
+            "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"
+            "<RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings>"
+            f'<Actions Context="Author"><Exec><Command>{xml(cmd[0])}</Command><Arguments>{xml(args)}</Arguments></Exec></Actions></Task>')
+
+
+def service_paths():
+    if os.name == "nt":
+        return None
+    if sys.platform == "darwin":
+        return os.path.expanduser(f"~/Library/LaunchAgents/{SERVICE_NAME}.plist")
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(config, "systemd", "user", f"{SERVICE_NAME}.service")
+
+
+def service_install(tailscale):
+    cmd = service_command()
+    if tailscale:
+        # The service opens to phones once Tailscale is up, as it would after opening from the board.
+        state = state_file()
+        try:
+            current = json.loads(read_text_file(state))
+        except (OSError, ValueError):
+            current = {}
+        current = current if isinstance(current, dict) else {}
+        os.makedirs(os.path.dirname(state), exist_ok=True)
+        write_text_atomic(state, json.dumps(dict(current, phone=True), indent=2, ensure_ascii=False) + "\n")
+    path = service_paths()
+    if os.name == "nt":
+        xml_path = os.path.join(os.path.dirname(state_file()), "kanvas-task.xml")
+        os.makedirs(os.path.dirname(xml_path), exist_ok=True)
+        with open(xml_path, "w", encoding="utf-16") as f:
+            f.write(windows_task(cmd))
+        steps = [["schtasks", "/Create", "/TN", SERVICE_NAME, "/XML", xml_path, "/F"], ["schtasks", "/Run", "/TN", SERVICE_NAME]]
+        where = "a Task Scheduler task that runs when you log in"
+    elif sys.platform == "darwin":
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(launchd_plist(cmd))
+        domain = f"gui/{os.getuid()}"
+        run_quiet(["launchctl", "bootout", f"{domain}/{SERVICE_NAME}"])
+        steps = [["launchctl", "bootstrap", domain, path]]
+        where = path
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        write_text_atomic(path, systemd_unit(cmd))
+        steps = [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", f"{SERVICE_NAME}.service"]]
+        where = path
+    for step in steps:
+        code, out = run_quiet(step)
+        if code:
+            raise KanvasError(f"`{' '.join(step)}` failed: {out or f'exit code {code}'}")
+    print(f"Kanvas now starts when you log in ({where}).")
+    print("It serves the boards you open with `kanvas serve`, and remembers them across restarts.")
+    if tailscale:
+        print("It also opens them to your phone over Tailscale, as soon as Tailscale is connected.")
+    running = find_running(8765)
+    if running:
+        print(f"Open {running[0]}")
+    if os.name != "nt" and sys.platform != "darwin":
+        print(f"To start it at boot, before you log in: loginctl enable-linger {os.environ.get('USER') or '$USER'}")
+
+
+def service_uninstall():
+    path = service_paths()
+    if os.name == "nt":
+        run_quiet(["schtasks", "/End", "/TN", SERVICE_NAME])
+        code, out = run_quiet(["schtasks", "/Delete", "/TN", SERVICE_NAME, "/F"])
+        removed = code == 0
+    elif sys.platform == "darwin":
+        run_quiet(["launchctl", "bootout", f"gui/{os.getuid()}/{SERVICE_NAME}"])
+        removed = os.path.exists(path)
+        if removed:
+            os.remove(path)
+    else:
+        run_quiet(["systemctl", "--user", "disable", "--now", f"{SERVICE_NAME}.service"])
+        removed = os.path.exists(path)
+        if removed:
+            os.remove(path)
+        run_quiet(["systemctl", "--user", "daemon-reload"])
+    print("Kanvas no longer starts when you log in." if removed else "Kanvas was not set to start when you log in.")
+
+
+def service_status():
+    path = service_paths()
+    if os.name == "nt":
+        installed = run_quiet(["schtasks", "/Query", "/TN", SERVICE_NAME])[0] == 0
+    else:
+        installed = os.path.exists(path)
+    print("Starts when you log in: " + ("yes" if installed else "no (`kanvas service install` sets that up)"))
+    running = find_running(8765)
+    print(f"Running: yes, at {running[0]}" if running else "Running: no")
+    try:
+        state = json.loads(read_text_file(state_file()))
+    except (OSError, ValueError):
+        state = {}
+    boards = state.get("boards") or [] if isinstance(state, dict) else []
+    print(f"Remembered boards ({state_file()}):" if boards else "Remembered boards: none yet")
+    for b in boards:
+        print(f"  {b}")
+
+
+def cmd_service(args):
+    {"install": lambda: service_install(args.tailscale), "uninstall": service_uninstall, "status": service_status}[args.action]()
 
 
 # ---------------------------------------------------------------------------
@@ -2276,7 +2546,11 @@ def build_parser():
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 for containers or remote machines")
     p.add_argument("--tailscale", action="store_true", help="also open the boards to your phone and other devices on your Tailscale network")
+    p.add_argument("--saved", action="store_true", help="serve only the boards open last time, without a project of its own (for `kanvas service`)")
     p.add_argument("--no-open", action="store_true", help="do not open a browser")
+    p = add("service", cmd_service, "start Kanvas when you log in, so your boards are always open")
+    p.add_argument("action", choices=["install", "uninstall", "status"])
+    p.add_argument("--tailscale", action="store_true", help="also open the boards to your phone over Tailscale")
     p = add("init", cmd_init, "set up Kanvas in a project (never overwrites files)")
     p.add_argument("dir", nargs="?", help=f"project folder (default: the folder of the nearest {BOARD_FILE}, "
                                           "else the top folder of the git repository, else this one)")

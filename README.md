@@ -180,6 +180,26 @@ The computer's firewall is probably blocking Kanvas. Kanvas uses port 8765, or t
 
 Then pick **Open on your phone…** again and scan.
 
+### Keep Kanvas running
+
+For the phone to reach your boards, Kanvas has to be running on the computer. Instead of leaving a terminal open, let it start when you log in:
+
+```bash
+kanvas service install --tailscale
+```
+
+It then runs in the background with the boards you opened before, and opens them to your phone as soon as Tailscale is connected. A board you open later with `kanvas serve` joins it and is remembered too. Leave out `--tailscale` to keep the boards on this computer only. `kanvas service status` says whether it is set up and running, and `kanvas service uninstall` removes it.
+
+This needs Kanvas installed with `uv tool install kanvas-board`, as in [Quick start](#quick-start), so the service has a lasting command to run. On each system it uses the usual mechanism for your own programs, without administrator rights:
+
+| System | What `service install` sets up |
+|--------|------------|
+| Linux | A systemd user service, `~/.config/systemd/user/kanvas.service`; `systemctl --user status kanvas` and `journalctl --user -u kanvas` show how it is doing. It starts when you log in; to start it at boot, before you log in, run `loginctl enable-linger $USER` once. On NixOS, the same command works. |
+| macOS | A LaunchAgent, `~/Library/LaunchAgents/kanvas.plist`, logging to `~/Library/Logs/Kanvas.log` |
+| Windows | A Task Scheduler task named `kanvas` that runs at logon without a window |
+
+The browser's **Open to my phone** and **Stop opening to phones** are remembered the same way, so you can also change phone access from the board.
+
 ## CLI
 
 You type `kanvas <command>`; `kanvas -h` lists the commands and `kanvas <command> -h` explains one. Agents run the same commands through the project's copy, `python .agents/skills/kanvas/kanvas.py <command>`, so cloud agents and teammates who never installed Kanvas can work on the board too. Messages name the command you typed: `kanvas ...` for the installed command, `python .agents/skills/kanvas/kanvas.py ...` for the project's copy.
@@ -203,6 +223,8 @@ You type `kanvas <command>`; `kanvas -h` lists the commands and `kanvas <command
 | `undepend ID ON [ON ...]` | Remove dependencies from a proposal |
 | `check` | Validate the board; exit code 1 on errors |
 | `serve [--port N] [--host H] [--tailscale]` | Open the board in the browser; when Kanvas already runs for another project, open the board there and return. In a project without a board, offer to create one first. `--tailscale` also opens the boards to your phone over Tailscale |
+| `serve --saved` | Serve only the boards open last time, without a project of its own; what `service` runs |
+| `service install [--tailscale]` / `uninstall` / `status` | Start Kanvas when you log in, so your boards are always open; `--tailscale` also opens them to your phone |
 | `init [DIR]` | Set up Kanvas in a project, or refresh the agents' copy after an update |
 | `import FILE.canvas` | Migrate a Kanvas 0.x Obsidian board |
 | `export [FILE.html]` | Write a read-only snapshot |
@@ -211,7 +233,7 @@ You type `kanvas <command>`; `kanvas -h` lists the commands and `kanvas <command
 
 In a project without a board, `serve` asks whether to create one, then opens it. Without a person at the terminal, it fails with a message naming `kanvas init`.
 
-One Kanvas serves the boards of all your projects. The first `serve` starts it and keeps running; a `serve` in another project finds it, opens its board there and returns. Each board's address is named after its project folder, and `http://127.0.0.1:8765/` lists the open boards. Kanvas keeps that list only while it runs and writes nothing outside your projects: after a restart, a board comes back when you run `serve` in its project.
+One Kanvas serves the boards of all your projects. The first `serve` starts it and keeps running; a `serve` in another project finds it, opens its board there and returns. Each board's address is named after its project folder, and `http://127.0.0.1:8765/` lists the open boards. Kanvas remembers that list, and whether it was open to phones, in `boards.json` in your user folder (`~/.local/state/kanvas/` on Linux, `~/Library/Application Support/Kanvas/` on macOS, `%LOCALAPPDATA%\Kanvas\` on Windows), so the next start reopens them. A board whose file is gone is dropped from the list.
 
 Text arguments also accept `--stdin` and `--file PATH`, read as UTF-8 on every platform, which is the reliable way to pass multi-line or non-ASCII text from any shell. Notes are signed with `--as NAME` or the `KANVAS_AGENT` environment variable. The CLI finds `kanvas.json` in the current directory or any parent; `--board PATH` or `KANVAS_BOARD` point elsewhere.
 

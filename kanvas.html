@@ -3063,7 +3063,7 @@ function phoneDialog() {
   const body = h("div", { class: "phone" });
   const port = location.port || "80";
   const fail = (e) => body.replaceChildren(h("p", { class: "phone-error" }, e.message));
-  const ask = (method) => fetch("api/phone", method === "POST" ? { method, headers: { "Content-Type": "application/json" }, body: "{}" } : { cache: "no-store" })
+  const ask = (method) => fetch("api/phone", method === "GET" ? { cache: "no-store" } : { method, headers: { "Content-Type": "application/json" }, body: "{}" })
     .then(async (r) => { const info = await r.json(); if (!r.ok) throw new Error(info.error || `Error ${r.status}`); return info; });
   const show = (info) => {
     if (!info.urls.length) {
@@ -3079,7 +3079,8 @@ function phoneDialog() {
       h("p", {}, "Scan it with your phone's camera. The phone needs the Tailscale app, signed in to the same account."),
       ...info.urls.map((u) => h("div", { class: "phone-url" }, h("code", {}, u), h("button", { type: "button", onclick: () => copy(u) }, icon("copy"), "Copy"))),
       h("p", { class: "phone-note" }, `Anyone on your Tailscale network can open and edit your boards. If the phone cannot connect, allow port ${port} for Tailscale in this computer's firewall: `,
-        h("a", { href: "https://github.com/XMihura/Kanvas#if-the-phone-cannot-connect", target: "_blank", rel: "noopener" }, "how, for each system"), "."));
+        h("a", { href: "https://github.com/XMihura/Kanvas#if-the-phone-cannot-connect", target: "_blank", rel: "noopener" }, "how, for each system"), "."),
+      h("button", { type: "button", onclick: (e) => { e.currentTarget.disabled = true; ask("DELETE").then(show, fail); } }, "Stop opening to phones"));
   };
   body.append(h("p", {}, "Loading…"));
   ask("GET").then(show, fail);
