@@ -207,7 +207,8 @@ button.yolo-go, button.yolo-go:hover { border: 0; color: var(--yolo-ink); font-w
 .zoombar button:hover { background: var(--surface-2); color: var(--text); }
 .zoombar .pct { min-width: 50px; font: 12px var(--mono); font-variant-numeric: tabular-nums; }
 .zoombar .zsep { width: 1px; height: 18px; margin: 0 3px; background: var(--border); }
-.hint-bar { position: absolute; left: 14px; bottom: 14px; font-size: 12px; color: var(--faint); z-index: 2; pointer-events: none; }
+.zoombar .spread { display: flex; align-items: center; padding: 0 6px; }
+.zoombar .spread input { width: 90px; margin: 0; padding: 0; border: 0; background: none; accent-color: var(--accent); cursor: pointer; }
 .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1; }
 .empty > div { pointer-events: auto; text-align: center; max-width: 420px; padding: 26px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
 .empty h2 { margin: 0 0 6px; font-size: 18px; }
@@ -407,8 +408,6 @@ body.picking .card { cursor: pointer; }
 .ctx-menu.dpop .track > button.on { background: var(--raise); }
 .ctx-menu.dpop .track .icon { color: inherit; }
 .dpop .d-note { font-size: 12px; line-height: 1.4; color: var(--muted); }
-.dpop .d-range { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
-.dpop .d-range input { flex: 1; padding: 0; border: 0; background: none; accent-color: var(--accent); }
 .tip { position: fixed; z-index: 60; display: flex; align-items: center; gap: 8px; max-width: 340px; padding: 5px 8px; border-radius: 6px; background: #1d2330; color: #eef0f4; font-size: 12px; line-height: 1.35; box-shadow: 0 6px 18px rgb(16 24 40 / .2); pointer-events: none; animation: tip-in .1s ease-out; }
 .tip kbd { flex: none; background: rgb(255 255 255 / .1); border-color: rgb(255 255 255 / .2); color: #d7dce4; }
 [data-theme="dark"] .tip { background: #2c3240; border: 1px solid #3d4453; }
@@ -479,7 +478,6 @@ body.picking .card { cursor: pointer; }
 }
 @media (max-width: 900px) {
   #panel { position: absolute; inset: 0 auto 0 0; width: min(430px, 100%); box-shadow: var(--shadow-lg); }
-  .hint-bar { display: none; }
 }
 </style>
 </head>
@@ -507,7 +505,7 @@ body.picking .card { cursor: pointer; }
       <button id="view-graph" data-icon="graph" data-tip="Dependency graph" data-key="G" aria-label="Graph"><span class="lbl">Graph</span></button>
       <button id="view-board" data-icon="columns" data-tip="Board by state" data-key="B" aria-label="Board"><span class="lbl">Board</span></button>
     </div>
-    <button id="display" data-icon="sliders" data-tip="Direction, card order, spacing, finished tasks and theme" aria-haspopup="dialog" aria-expanded="false" aria-label="Display options"><span class="lbl">Display</span></button>
+    <button id="display" data-icon="sliders" data-tip="Direction, card order, finished tasks and theme" aria-haspopup="dialog" aria-expanded="false" aria-label="Display options"><span class="lbl">Display</span></button>
   </div>
   <div class="tools edit-only">
     <button id="undo" class="ghost icon-btn" data-icon="undo" data-tip="Nothing to undo" data-key="Ctrl+Z" aria-label="Undo" disabled></button>
@@ -539,13 +537,14 @@ body.picking .card { cursor: pointer; }
       </div>
     </div>
     <div class="zoombar">
+      <label class="spread" data-tip="Spacing between dependency levels" data-key="[ ]"><input id="spread" type="range" min="30" max="500" step="10" aria-label="Spacing between dependency levels"></label>
+      <span class="zsep"></span>
       <button id="zoom-out" data-icon="minus" data-tip="Zoom out" data-key="−" aria-label="Zoom out"></button>
       <button id="zoom-pct" class="pct" data-tip="Zoom to 100%" aria-label="Zoom to 100%">100%</button>
       <button id="zoom-in" data-icon="plus" data-tip="Zoom in" data-key="+" aria-label="Zoom in"></button>
       <span class="zsep"></span>
       <button id="zoom-fit" data-icon="fit" data-tip="Fit to screen" data-key="F" aria-label="Fit to screen"></button>
     </div>
-    <div class="hint-bar edit-only">Drag a dot on a card's edge onto another card to add a dependency. Click an arrow to remove it. Right-click for more actions. Scroll to pan, Ctrl+scroll to zoom.</div>
     <div class="empty" id="graph-empty" hidden></div>
   </section>
   <section class="view" id="board-view" hidden><div id="kanban"></div></section>
@@ -2082,8 +2081,6 @@ function renderGraph() {
   world.style.height = `${L.height}px`;
   world.classList.toggle("vertical", L.vertical);
   world.classList.toggle("manual", opts.manual && !store.readOnly);
-  $(".hint-bar").textContent = `${opts.manual ? "Drag a card up or down to move it, or a group by its name. " : ""}Drag a dot on a card's edge onto another card to add a dependency. Click an arrow to remove it. Right-click for more actions. Scroll to pan, Ctrl+scroll to zoom.`;
-
   $("#lanes").replaceChildren(...L.lanes.map((l) => h("div", {
     class: "lane", "data-group": l.id || "", style: `left:${l.left}px;top:${l.top}px;height:${l.height}px;width:${l.width}px`,
   },
@@ -3145,6 +3142,7 @@ function helpDialog() {
   const keys = [["N", "New task"], ["/", "Filter tasks"], ["G / B", "Graph or board view"], ["L", "Graph left to right or top to bottom"], ["M", "Automatic layout, or order cards and groups yourself by dragging them"], ["H", "Hide or show finished tasks"], ["F", "Fit the graph to the screen"], ["+ / -", "Zoom"], ["[ / ]", "Compress or extend the graph"], ["← / ↑ / ↓ / →", "Select the next card in that direction"], ["Enter", "Move into the selected task's panel, where Tab goes round its controls"], ["Esc", "Leave the panel, close it, or clear the filter"], ["Right-click", "Actions for a card, a dependency or empty space"], ["Ctrl+Z", "Undo your last change"], ["Ctrl+Shift+Z / Ctrl+Y", "Redo"], ["Ctrl+Enter", "Save the text you are editing"]];
   modal("Keyboard shortcuts", [
     h("div", { class: "keys" }, keys.map(([k, v]) => [h("span", {}, k.split(" / ").map((x, i) => [i ? " / " : "", h("kbd", {}, x)])), h("span", {}, v)])),
+    h("p", {}, "In the graph, drag a dot on a card's edge onto another card to add a dependency, and click an arrow to remove it. Scroll to pan, Ctrl+scroll to zoom."),
     h("p", {}, "Agents work through the Kanvas command line; their changes appear here within a second."),
     prefs.skipYoloWarning ? h("p", {}, "The YOLO confirmation is hidden. ",
       h("button", { type: "button", class: "link", onclick: (e) => { delete prefs.skipYoloWarning; savePrefs(); e.target.closest("p").remove(); toast("The YOLO confirmation will show again"); } }, "Show it again")) : null,
@@ -3232,15 +3230,12 @@ function displayMenu() {
       h("button", { type: "button", class: value === current ? "on" : null, "aria-pressed": String(value === current), onclick: () => { if (value !== current) { pick(value); fill(); } } }, ic ? icon(ic) : null, label)));
     const row = (label, keys, control, note) => h("div", { class: "d-row" },
       h("div", { class: "d-label" }, h("span", {}, label), keys.map((k) => h("kbd", {}, k))), control, note ? h("div", { class: "d-note" }, note) : null);
-    const spacing = h("input", { type: "range", min: LEVEL_GAP.min, max: LEVEL_GAP.max, step: 10, value: prefs.levelGap, "aria-label": "Spacing between dependency levels" });
-    spacing.addEventListener("input", () => setLevelGap(+spacing.value));
     const graph = prefs.view === "graph", manual = prefs.arrange === "manual";
     node.replaceChildren(...compact(
       graph && h("div", { class: "d-head" }, "Graph"),
       graph && row("Direction", ["L"], seg("Direction", [["horizontal", "Left to right", "right"], ["vertical", "Top to bottom", "down"]], prefs.orient === "vertical" ? "vertical" : "horizontal", toggleOrient)),
       graph && row("Card order", ["M"], seg("Card order", [["auto", "Automatic"], ["manual", "Manual"]], manual ? "manual" : "auto", toggleArrange),
         manual ? "Cards keep the order you give them. Drag a card up or down or into another lane, or a lane by its name." : "Cards are arranged for fewer crossings and straighter arrows."),
-      graph && row("Spacing between levels", ["[", "]"], h("div", { class: "d-range" }, "Tight", spacing, "Wide")),
       h("div", { class: "d-head" }, "Tasks"),
       row("Finished tasks", ["H"], seg("Finished tasks", [[false, "Show"], [true, "Hide"]], !!prefs.hideDone, toggleDone)),
       h("div", { class: "d-head" }, "Appearance"),
@@ -3547,6 +3542,8 @@ function setupChrome() {
   $("#view-board").onclick = () => setView("board");
   $("#display").onclick = (e) => dropdown(e.currentTarget, displayMenu(), { alignRight: true, cls: "dpop", role: "dialog", label: "Display options" });
   prefs.levelGap = clamp(Math.round(+prefs.levelGap || 70), LEVEL_GAP.min, LEVEL_GAP.max);
+  Object.assign($("#spread"), { min: LEVEL_GAP.min, max: LEVEL_GAP.max, value: prefs.levelGap });
+  $("#spread").addEventListener("input", (e) => setLevelGap(+e.target.value));
   $("#undo").onclick = () => step("undo");
   $("#redo").onclick = () => step("redo");
   $("#new-task").onclick = () => newTaskDialog();
@@ -3672,6 +3669,7 @@ function setLevelGap(gap) {
   const at = (mid - view[axis]) / view.k;
   view[axis] = mid - at * (cell + gap) / (cell + prefs.levelGap) * view.k;
   prefs.levelGap = gap;
+  $("#spread").value = gap;
   savePrefs();
   render();
   applyView(false);
