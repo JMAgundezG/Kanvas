@@ -42,6 +42,11 @@ content-type = "text/markdown"
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
 path = "README.md"
 
+# PyPI pages stay light when the reader's system is dark, so they get the dark logo only.
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '<source media="\(prefers-color-scheme: dark\)"[^>]*>\n'
+replacement = ''
+
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
 pattern = '(\]\(|src=")img/'
 replacement = '\1https://raw.githubusercontent.com/XMihura/Kanvas/main/img/'

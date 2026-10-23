@@ -1,6 +1,9 @@
-<img src="img/icon.svg" alt="" width="72">
-
-# Kanvas
+<h1>
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="img/kanvas-dark.svg">
+<img src="img/kanvas.svg" alt="Kanvas" height="56">
+</picture>
+</h1>
 
 A task board you share with your AI coding agents. Agents plan and report through a small CLI; you approve, steer and review in an interactive board in your browser.
 
