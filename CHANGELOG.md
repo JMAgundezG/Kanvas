@@ -19,7 +19,7 @@ Kanvas runs without Obsidian. The board is a JSON file, agents use a new CLI, an
 - Tidier graph: arrows that skip levels run between cards instead of under them, arrow ends spread along the card edge, cards are ordered to cut crossings and lined up so more arrows are straight
 - Manual graph layout (`M`): cards keep the order of `kanvas.json`; drag a card up or down to reorder it, or into another swimlane to change its group; drag a swimlane by its name to reorder the groups
 - Delete a group from its swimlane's right-click menu or from Groups… on the board name: its tasks stay without a group, or go with it if you tick the box
-- Arrow keys select the next card in that direction, in the graph and the board
+- Arrow keys select the next card in that direction, in the graph and the board, and keys act on the selected card: A approves, S starts, P pauses, D marks done, E renames, Delete or Backspace deletes (or rejects a proposal) after asking
 - The graph hides arrows for dependencies that another dependency already implies, and draws them dashed while one of their tasks is selected
 - YOLO: mark a task in the board and agents may start and finish everything it depends on without approval or review, then the task itself, which comes back to you for review and ends the YOLO; YOLO on a task further along takes over the chain, so each chain ends with one review; its confirmation can be skipped with "Don't ask again" and brought back from the keyboard shortcuts dialog
 - Agents add notes with `note`; notes record the author (`--as`, `KANVAS_AGENT`)

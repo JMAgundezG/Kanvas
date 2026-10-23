@@ -3224,7 +3224,7 @@ function groupsDialog() {
 }
 
 function helpDialog() {
-  const keys = [["N", "New task"], ["/", "Filter tasks"], ["G / B", "Graph or board view"], ["L", "Graph left to right or top to bottom"], ["M", "Automatic layout, or order cards and groups yourself by dragging them"], ["H", "Hide or show finished tasks"], ["F", "Fit the graph to the screen"], ["+ / -", "Zoom"], ["[ / ]", "Compress or extend the graph"], ["← / ↑ / ↓ / →", "Select the next card in that direction"], ["Shift+← / Shift+→", "Previous or next open board"], ["Enter", "Move into the selected task's panel, where Tab goes round its controls"], ["Esc", "Leave the panel, close it, or clear the filter"], ["Right-click", "Actions for a card, a dependency or empty space"], ["Ctrl+Z", "Undo your last change"], ["Ctrl+Shift+Z / Ctrl+Y", "Redo"], ["Ctrl+Enter", "Save the text you are editing"]];
+  const keys = [["N", "New task"], ["/", "Filter tasks"], ["G / B", "Graph or board view"], ["L", "Graph left to right or top to bottom"], ["M", "Automatic layout, or order cards and groups yourself by dragging them"], ["H", "Hide or show finished tasks"], ["F", "Fit the graph to the screen"], ["+ / -", "Zoom"], ["[ / ]", "Compress or extend the graph"], ["← / ↑ / ↓ / →", "Select the next card in that direction"], ["Shift+← / Shift+→", "Previous or next open board"], ["Enter", "Move into the selected task's panel, where Tab goes round its controls"], ["A", "Approve the selected proposal"], ["S", "Start the selected task"], ["D", "Mark the selected task done"], ["P", "Pause the selected task"], ["E", "Rename the selected task"], ["Del / Backspace", "Delete the selected task, or reject it if it is a proposal"], ["Esc", "Leave the panel, close it, or clear the filter"], ["Right-click", "Actions for a card, a dependency or empty space"], ["Ctrl+Z", "Undo your last change"], ["Ctrl+Shift+Z / Ctrl+Y", "Redo"], ["Ctrl+Enter", "Save the text you are editing"]];
   modal("Keyboard shortcuts", [
     h("div", { class: "keys" }, keys.map(([k, v]) => [h("span", {}, k.split(" / ").map((x, i) => [i ? " / " : "", h("kbd", {}, x)])), h("span", {}, v)])),
     h("p", {}, "In the graph, drag a dot on a card's edge onto another card to add a dependency, and click an arrow to remove it. Scroll to pan, Ctrl+scroll to zoom."),
@@ -3723,6 +3723,7 @@ function setupChrome() {
       return;
     }
     if (e.key === "Escape" && panel.contains(e.target)) { e.preventDefault(); e.target.blur(); return; }
+    if (!picking && !menuEl && taskKey(e.key)) { e.preventDefault(); return; }
     const r = $("#viewport").getBoundingClientRect();
     const actions = {
       "/": () => search.focus(), n: () => newTaskDialog(), g: () => setView("graph"), b: () => setView("board"),
@@ -3739,6 +3740,27 @@ function setupChrome() {
   setInterval(() => { if (board && prefs.view === "graph") for (const t of board.tasks) if (t.notes.length && cardEls.has(key(t.id))) fillCard(cardEls.get(key(t.id)), t); }, 60000);
   setupGraphInput();
   setupMenus();
+}
+
+// Keys that act on the selected task, through the same moves as its menu.
+function taskKey(key) {
+  const t = ui.selected && get(ui.selected);
+  if (!t || store.readOnly) return false;
+  if (key === "Delete" || key === "Backspace") { removeTask(t); return true; }
+  const k = key.toLowerCase();
+  if (k === "e") {
+    const title = $("#panel .p-title");
+    if (!title) return false;
+    title.focus();
+    title.select();
+    return true;
+  }
+  const want = { a: "Approve", s: "Start", d: "Mark done", p: "Pause" }[k];
+  if (!want) return false;
+  const move = stateMoves(t).find((m) => m.label === want);
+  if (move) move.run();
+  else toast(`${want} doesn't apply to ${t.id}, which is ${LABEL[vstate(t)].toLowerCase()}`);
+  return true;
 }
 
 function setView(v) {
