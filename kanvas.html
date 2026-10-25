@@ -82,11 +82,23 @@ header.top > .tools > button, header.top > #help, .board-title { height: 30px; }
 .schip.off .icon { color: var(--c); }
 .schip.off .icon svg { width: 14px; height: 14px; }
 .schip.off b { color: var(--faint); }
+#group-filter { height: 30px; gap: 5px; padding: 0 6px 0 8px; font-size: 12.5px; color: var(--muted); }
+#group-filter:not(.on) .lbl { display: none; }
+#group-filter .lbl { max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#group-filter > .icon:last-child svg { width: 13px; height: 13px; }
+#group-filter > .icon:last-child { color: var(--faint); margin-left: -2px; }
+#group-filter.on { color: var(--text); background: color-mix(in srgb, var(--g) 12%, var(--surface)); border-color: color-mix(in srgb, var(--g) 60%, transparent); }
+#hide-done { height: 30px; min-width: 30px; justify-content: center; color: var(--muted); }
+#hide-done.on { color: var(--text); background: color-mix(in srgb, var(--done) 12%, var(--surface)); border-color: color-mix(in srgb, var(--done) 60%, transparent); }
+#group-filter.menu-target { background: var(--surface-2); border-color: var(--border-strong); }
+.gf-body { display: flex; flex-direction: column; }
+.gf-body .count { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .search { position: relative; display: flex; align-items: center; }
 .search input { height: 30px; width: 170px; padding: 0 26px 0 28px; }
 .search .sicon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; display: flex; }
 .search kbd { position: absolute; right: 7px; pointer-events: none; }
 .search input:focus ~ kbd, .search input:not(:placeholder-shown) ~ kbd { display: none; }
+.search input:focus, .search input:not(:placeholder-shown) { padding-right: 8px; }
 #display .icon:last-child svg { width: 13px; height: 13px; }
 #display .icon:last-child { color: var(--faint); margin-left: -2px; }
 #display.menu-target, #help.menu-target { background: var(--surface-2); border-color: var(--border-strong); }
@@ -125,7 +137,6 @@ main { flex: 1; position: relative; min-height: 0; display: flex; }
 .lane-head .lane-count { font-size: 12px; font-variant-numeric: tabular-nums; }
 .lane-head button { padding: 2px; border-color: transparent; background: transparent; color: var(--faint); }
 .lane-head button:hover { color: var(--text); border-color: var(--border); }
-.lane-swatch { width: 10px; height: 10px; border-radius: 2px; }
 .lane-bar { width: 42px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
 .lane-bar i { display: block; height: 100%; background: var(--done); }
 .lane-empty { position: absolute; left: 14px; top: 40px; width: var(--cw); height: 52px; border: 1.5px dashed var(--border-strong); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--faint); font-size: 12.5px; }
@@ -220,7 +231,7 @@ button.yolo-go, button.yolo-go:hover { border: 0; color: var(--yolo-ink); font-w
 #kanban { position: absolute; inset: 0; display: flex; gap: 12px; padding: 14px; overflow-x: auto; }
 .col { flex: 1 0 214px; max-width: 360px; display: flex; flex-direction: column; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; min-height: 0; transition: border-color .15s, background .15s; }
 .col.drop { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface-2)); }
-.col-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-weight: 650; }
+.col-head { display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 12px; font-weight: 650; }
 .col-head .count { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 .col-head button { margin-left: auto; padding: 2px 8px; font-size: 12px; }
 .col-body { padding: 4px 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; }
@@ -230,8 +241,9 @@ button.yolo-go, button.yolo-go:hover { border: 0; color: var(--yolo-ink); font-w
 .kcard.dragging { opacity: .4; }
 .kcard.flash { animation: flash 1.6s ease-out; }
 .kcard .card-title { -webkit-line-clamp: 3; }
-.gchip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); }
-.gchip i { width: 8px; height: 8px; border-radius: 2px; background: var(--g); }
+.gchip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--muted); }
+.icon.gtag, .ctx-menu :is(button, a.item) .icon.gtag { color: var(--g, var(--faint)); }
+.gtag svg { width: 13px; height: 13px; fill: color-mix(in srgb, var(--g, var(--faint)) 28%, transparent); }
 
 /* Detail panel */
 #panel { width: 430px; flex: none; border-right: 1px solid var(--border); background: var(--surface); overflow-y: auto; z-index: 4; }
@@ -248,8 +260,7 @@ button.yolo-go, button.yolo-go:hover { border: 0; color: var(--yolo-ink); font-w
 .pick.badge:hover { background: color-mix(in srgb, var(--c) 28%, transparent); }
 .gpick { gap: 6px; border-color: transparent; background: transparent; color: var(--muted); }
 .gpick:hover { color: var(--text); background: var(--surface-2); border-color: transparent; }
-.gpick i, .ctx-menu .gsw { width: 8px; height: 8px; border-radius: 2px; background: var(--g); flex: none; }
-.ctx-menu .gsw { display: inline-block; margin-right: 8px; }
+.ctx-menu .lbl .gtag { vertical-align: -2px; margin-right: 8px; }
 .ctx-menu .lbl .dot { display: inline-block; margin-right: 8px; }
 .p-body { padding: 14px 16px 28px; display: flex; flex-direction: column; gap: 16px; }
 .p-title { display: block; width: calc(100% + 12px); margin: 0 -6px -4px; padding: 3px 6px; border-color: transparent; background: transparent; font-size: 19px; font-weight: 650; line-height: 1.3; letter-spacing: -.01em; resize: none; overflow: hidden; }
@@ -299,6 +310,7 @@ button.add-line:hover { color: var(--text); }
 .md p, .md ul, .md ol, .md pre, .md blockquote { margin: 0 0 8px; }
 .md ul, .md ol { padding-left: 20px; }
 .md li.task { list-style: none; margin-left: -18px; }
+.md .tick, .md .tick input { cursor: pointer; }
 .md h3, .md h4, .md h5, .md h6 { margin: 10px 0 6px; font-size: 13.5px; }
 .md h3 { font-size: 15px; }
 .md code { font: 12px var(--mono); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
@@ -339,6 +351,7 @@ a.tref { font: 600 12px var(--mono); text-decoration: none; padding: 0 4px; bord
 
 /* Dialogs, toast, welcome */
 dialog.dlg { border: 1px solid var(--border); border-radius: 10px; padding: 0; background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg); width: min(520px, calc(100vw - 32px)); }
+dialog.dlg:focus { outline: none; }
 dialog.dlg::backdrop { background: rgb(10 12 18 / .38); backdrop-filter: blur(2px); }
 .dlg form { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
 .dlg h3 { margin: 0; font-size: 16px; }
@@ -379,7 +392,7 @@ body.picking .card { cursor: pointer; }
 .card.pick-off, .kcard.pick-off { opacity: .3; cursor: not-allowed !important; }
 .dlg-actions { display: flex; flex-direction: row-reverse; gap: 8px; margin-top: 4px; }
 .group-rows { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
-.group-row { display: grid; grid-template-columns: 12px 1fr 64px auto; gap: 8px; align-items: center; }
+.group-row { display: grid; grid-template-columns: 14px 1fr 64px auto; gap: 8px; align-items: center; }
 .group-row .cid { text-align: center; }
 .group-row .btns { display: flex; gap: 2px; }
 .group-row .btns button { padding: 4px; }
@@ -411,6 +424,7 @@ body.picking .card { cursor: pointer; }
 .ctx-menu.dpop .track > button:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
 .ctx-menu.dpop .track > button.on { background: var(--raise); }
 .ctx-menu.dpop .track .icon { color: inherit; }
+.dpop .d-range { width: 100%; height: 40px; margin: 0; padding: 0; border: 0; background: none; accent-color: var(--accent); cursor: pointer; }
 .dpop .d-note { font-size: 12px; line-height: 1.4; color: var(--muted); }
 .tip { position: fixed; z-index: 60; display: flex; align-items: center; gap: 8px; max-width: 340px; padding: 5px 8px; border-radius: 6px; background: #1d2330; color: #eef0f4; font-size: 12px; line-height: 1.35; box-shadow: 0 6px 18px rgb(16 24 40 / .2); pointer-events: none; animation: tip-in .1s ease-out; }
 .tip kbd { flex: none; background: rgb(255 255 255 / .1); border-color: rgb(255 255 255 / .2); color: #d7dce4; }
@@ -424,13 +438,36 @@ body.picking .card { cursor: pointer; }
 .ctx-task .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctx-link-arrow { display: flex; align-items: center; gap: 6px; padding: 1px 12px; font-size: 11.5px; color: var(--muted); }
 .ctx-link-arrow .icon svg { width: 13px; height: 13px; }
-#toasts { position: fixed; left: 50%; bottom: 46px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; z-index: 50; pointer-events: none; }
-.toast { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 6px; background: var(--text); color: var(--bg); box-shadow: var(--shadow-lg); font-size: 13px; animation: enter .2s ease-out; max-width: 80vw; }
+/* Toasts keep clear of the zoom bar and may take the whole width but the margins. */
+#toasts { position: fixed; left: 12px; right: 12px; bottom: calc(72px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; align-items: center; z-index: 50; pointer-events: none; }
+.toast { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 6px; background: var(--text); color: var(--bg); box-shadow: var(--shadow-lg); font-size: 13px; line-height: 1.35; animation: enter .2s ease-out; max-width: min(560px, 100%); min-width: 0; }
+.toast .msg { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.toast .badge { flex: none; }
+.toast .where { flex: none; max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border-radius: 4px; font-size: 11.5px; font-weight: 600; background: color-mix(in srgb, var(--bg) 18%, transparent); }
+.toast.go, .toast.go:hover { pointer-events: auto; cursor: pointer; border: 0; white-space: normal; text-align: left; background: var(--text); }
+.toast.go:hover { box-shadow: var(--shadow-lg), 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent); }
 .toast.error { background: #dc2626; color: #fff; }
 .toast .badge { --c-on: color-mix(in srgb, var(--c) 70%, #fff); color: var(--c-on); background: color-mix(in srgb, var(--c) 30%, transparent); }
 .toast .agent { width: 18px; height: 18px; font-size: 10.5px; }
 .toast .cid { color: inherit; opacity: .7; }
 .toast button.link { pointer-events: auto; margin-left: 10px; border: 0; background: none; padding: 0; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+#inbox { height: 30px; gap: 4px; padding: 0 7px; color: var(--muted); }
+#inbox b { min-width: 17px; padding: 0 4px; border-radius: 9px; font-size: 11px; font-weight: 650; line-height: 17px; text-align: center; color: #fff; background: var(--accent); font-variant-numeric: tabular-nums; }
+#inbox:has(b) { color: var(--text); }
+#inbox.menu-target { background: var(--surface-2); border-color: var(--border-strong); }
+.ctx-menu.inbox-pop { width: min(400px, calc(100vw - 8px)); max-width: none; max-height: min(75vh, 600px); overflow-y: auto; }
+.inbox-body { display: flex; flex-direction: column; }
+.ib-head { padding: 8px 9px 4px; font-size: 11.5px; font-weight: 650; color: var(--faint); }
+.ib-board { padding: 6px 9px 2px; font-size: 12px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ib-board small { margin-left: 6px; font-weight: 400; color: var(--faint); }
+.ib-empty { padding: 6px 9px 10px; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.ctx-menu .ib-row { align-items: flex-start; white-space: normal; }
+.ib-row .badge { flex: none; margin-top: 1px; }
+.ib-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ib-title { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
+.ib-sub { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--faint); }
+.ib-sub .agent { width: 13px; height: 13px; font-size: 8.5px; }
+.inbox-body .cid { margin-right: 2px; }
 #welcome { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); z-index: 20; padding: 20px; }
 #welcome.drag { background: color-mix(in srgb, var(--accent) 8%, var(--bg)); }
 .welcome-card { max-width: 480px; width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 30px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 14px; }
@@ -451,41 +488,62 @@ body.picking .card { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .yolo-tag, .yolo-chip, .edge.live, .live, :is(.card, .kcard)::before, :is(.card, .kcard)::after { animation: none !important; }
 }
-@media (max-width: 1720px) {
+@media (max-width: 1820px) {
   .meter .progress { display: none; }
 }
-@media (max-width: 1640px) {
+@media (max-width: 1740px) {
   .brand .sync.ok .label { display: none; }
   .search input { width: 140px; }
 }
-@media (max-width: 1580px) and (min-width: 1436px) {
+@media (max-width: 1680px) and (min-width: 1536px) {
   .seg .lbl { display: none; }
 }
-@media (max-width: 1490px) and (min-width: 1436px) {
+@media (max-width: 1590px) and (min-width: 1536px) {
   #display .lbl { display: none; }
 }
-@media (max-width: 1435px) {
+@media (max-width: 1535px) {
   .schip .lbl { display: none; }
   .board-title { max-width: 22ch; }
 }
-@media (max-width: 1340px) {
+@media (max-width: 1440px) {
   .seg .lbl { display: none; }
 }
-@media (max-width: 1250px) {
+@media (max-width: 1350px) {
   #display .lbl { display: none; }
 }
-@media (max-width: 1150px) {
+@media (max-width: 1250px) {
   .yolo-chip .lbl, #download .lbl { display: none; }
 }
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   #new-task .lbl { display: none; }
   #new-task { padding: 0 7px; }
 }
-@media (max-width: 1040px) {
+@media (max-width: 1150px) {
   header.top { flex-wrap: wrap; row-gap: 6px; }
   header.top > #help, .search kbd { display: none; }
   .search input { width: 130px; padding-right: 8px; }
   .board-title { max-width: 16ch; }
+}
+/* Two header rows: the board and the main buttons, then the filters across the whole width. */
+@media (max-width: 1150px), (pointer: coarse) and (max-device-width: 480px), (pointer: coarse) and (max-device-height: 480px) {
+  header.top { row-gap: 0; }
+  header.top > .tools { display: contents; }
+  .brand { order: 1; flex: 1 1 0; min-width: 0; }
+  .board-title { max-width: 100%; }
+  .seg { order: 2; }
+  #display, #inbox { order: 3; }
+  #new-task { order: 4; }
+  header.top > .spacer { order: 5; flex: 0 0 100%; height: 6px; }
+  #chips { order: 6; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  #group-filter, #hide-done, #yolo-chip { order: 7; }
+  .search { order: 8; flex: 1 1 120px; min-width: 120px; }
+  .search input { width: 100%; }
+  #undo { order: 9; }
+  #redo { order: 10; }
+}
+/* The filters' own row has room for the state names again, except on a phone held sideways. */
+@media (min-width: 900px) and (max-width: 1150px) and (min-height: 481px) {
+  .schip .lbl { display: inline; }
 }
 @media (max-width: 900px) {
   #panel { position: absolute; inset: 0 auto 0 0; width: min(430px, 100%); box-shadow: var(--shadow-lg); }
@@ -494,11 +552,14 @@ body.picking .card { cursor: pointer; }
 /* Touch: fingers need targets of 40px, and Safari zooms into text fields under 16px. */
 @media (max-width: 640px), (pointer: coarse) {
   input, select, textarea, .title-input, .note-edit textarea, .dlg .field :is(input, select, textarea), .dlg .pick-box input { font-size: 16px; }
-  header.top :is(button, .search input), header.top > .tools > button, header.top > #help, .board-title, .title-input { height: 40px; }
-  header.top .icon-btn, #new-task, #display { min-width: 40px; justify-content: center; }
+  header.top :is(button, .search input), header.top > .tools > button, header.top > #help, #group-filter, #hide-done, #inbox, .board-title, .title-input { height: 40px; }
+  .search kbd { display: none; }
+  .search input { padding-right: 8px; }
+  header.top .icon-btn, #hide-done, #inbox, #new-task, #display { min-width: 40px; justify-content: center; }
   header.top .track { padding: 0; }
   header.top .track > button { height: 40px; min-width: 40px; justify-content: center; }
-  :is(.p-head, .now-actions, .now-yolo, .row-end, .section-head, .dlg-actions, .col-head, .pick-bar, .welcome-card, .banner, .group-row, .group-new) button, button.add-line, .dlg .field :is(input, select) { min-height: 40px; }
+  :is(.p-head, .now-actions, .now-yolo, .row-end, .section-head, .dlg-actions, .col-head, .pick-bar, .welcome-card, .banner, .group-row, .group-new) button, button.add-line, .dlg button.pick-graph, .dlg .field :is(input, select) { min-height: 40px; }
+  .col-head { height: 52px; }
   .p-head .icon-btn, .p-back, .group-row .btns button { min-width: 40px; justify-content: center; }
   .zoombar button { height: 40px; min-width: 40px; }
   .ctx-menu :is(button, a.item), .pick-opt, .dep, .dlg .check { min-height: 40px; }
@@ -508,37 +569,51 @@ body.picking .card { cursor: pointer; }
   .note-btn { padding: 13px; margin: -10px; }
   .pick-chip button { min-width: 32px; min-height: 32px; justify-content: center; }
   .toast button.link { min-height: 40px; }
+  /* A checkbox's hit area is 40px wide and as tall as its row. Rows touch and blocks are at least 8px apart,
+     so reaching 4px past the ends of a list still lets a tap tick the nearest box. */
+  .md li.task:has(> .tick) { position: relative; }
+  .md .tick { -webkit-tap-highlight-color: transparent; }
+  .md .tick::before { content: ""; position: absolute; left: -16px; width: 40px; top: -4px; bottom: -4px; }
+  .md li.task + li.task .tick::before { top: 0; }
+  .md li.task:has(+ li.task) .tick::before { bottom: 0; }
 }
 @media (hover: none) {
   .dep button, .note-btn { opacity: 1; }
+  /* Without a mouse, new dependencies go through "Add dependency…" in the card menu. */
+  .handle { display: none; }
+}
+@media (pointer: coarse) {
+  /* Android paints its tap highlight over an arrow's whole bounding box. */
+  #viewport { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  #edge-hits path { stroke-width: 24px; vector-effect: non-scaling-stroke; }
 }
 
-/* Phones: a two-row header, the task panel over the whole screen, columns one screen wide. */
-@media (max-width: 640px), (max-height: 480px) and (pointer: coarse) {
+/* Phones: a two-row header, the task panel over the whole screen, columns one screen wide.
+   A phone in landscape is told by its screen, since an open keyboard also makes a tablet's page short. */
+@media (max-width: 640px), (pointer: coarse) and (max-device-width: 480px), (pointer: coarse) and (max-device-height: 480px) {
   header.top { gap: 0 4px; padding: 6px 8px; }
-  header.top > .tools { display: contents; }
-  .brand { order: 1; flex: 1 1 0; min-width: 0; }
   .brand > #sync { flex: 0 6 auto; min-width: 8px; overflow: hidden; }
   .sync .label { overflow: hidden; text-overflow: ellipsis; }
   .meter { display: none; }
-  .board-title { max-width: 100%; }
   .title-input { width: 100%; }
-  .seg { order: 2; }
-  #display { order: 3; padding: 0; }
+  #display { padding: 0; }
   #display .icon:last-child { display: none; }
-  #new-task { order: 4; padding: 0; }
-  header.top > .spacer { order: 5; flex: 0 0 100%; height: 6px; }
-  #chips { order: 6; flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-  #chips > .schip { flex: 1 1 auto; min-width: 34px; padding: 0 6px; }
-  #yolo-chip { order: 7; }
-  .search { order: 8; flex: 0 0 40px; }
-  .search input { width: 100%; padding: 0 8px 0 30px; }
+  #new-task { padding: 0; }
+  #chips { flex: 1 1 0; }
+  #chips > .schip { flex: 1 1 auto; min-width: 30px; padding: 0 4px; gap: 4px; }
+  #group-filter { padding: 0; min-width: 40px; justify-content: center; }
+  #group-filter .lbl, #group-filter > .icon:last-child { display: none; }
+  /* The filter row is full, so the finished-tasks toggle joins the view buttons. To leave the board's name
+     some room, the view switch shows only the view it switches to. */
+  #hide-done { order: 3; }
+  .seg > button.on { display: none; }
+  #inbox { padding: 0 4px; gap: 2px; }
+  .search { flex: 0 0 40px; min-width: 0; }
+  .search input { padding: 0 8px 0 30px; }
   .search .sicon { left: 12px; }
   .search input:placeholder-shown:not(:focus)::placeholder { color: transparent; }
   .search:focus-within, .search:has(input:not(:placeholder-shown)) { flex: 1 1 120px; }
-  header.top:has(.search input:focus) :is(#chips, #yolo-chip, #undo, #redo) { display: none; }
-  #undo { order: 9; }
-  #redo { order: 10; }
+  header.top:has(.search input:focus) :is(#chips, #group-filter, #yolo-chip, #undo, #redo) { display: none; }
 
   #panel { position: fixed; inset: 0; width: auto; z-index: 15; border: 0; box-shadow: none; }
   body.picking #panel { display: none; }
@@ -578,6 +653,8 @@ body.picking .card { cursor: pointer; }
     <button id="download" data-icon="download" data-tip="Download kanvas.json" aria-label="Save" hidden><span class="lbl">Save</span></button>
   </div>
   <div class="chips track" id="chips" role="group" aria-label="Filter by state"></div>
+  <button id="group-filter" aria-haspopup="dialog" aria-expanded="false" hidden></button>
+  <button id="hide-done" class="icon-btn" data-key="H" aria-pressed="false"></button>
   <button id="yolo-chip" class="yolo-chip" hidden></button>
   <div class="spacer"></div>
   <div class="tools">
@@ -587,6 +664,7 @@ body.picking .card { cursor: pointer; }
       <button id="view-board" data-icon="columns" data-tip="Board by state" data-key="B" aria-label="Board"><span class="lbl">Board</span></button>
     </div>
     <button id="display" data-icon="sliders" data-tip="Direction, card order, finished tasks and theme" aria-haspopup="dialog" aria-expanded="false" aria-label="Display options"><span class="lbl">Display</span></button>
+    <button id="inbox" aria-haspopup="dialog" aria-expanded="false" hidden></button>
   </div>
   <div class="tools edit-only">
     <button id="undo" class="ghost icon-btn" data-icon="undo" data-tip="Nothing to undo" data-key="Ctrl+Z" aria-label="Undo" disabled></button>
@@ -682,6 +760,7 @@ const ICONS = {
   redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   play: '<path d="M7 4.5v15l12-7.5z"/>',
   pause: '<path d="M8 5v14M16 5v14"/>',
+  eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   "eye-off": '<path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A10 10 0 0 1 12 5c7 0 10 7 10 7a17 17 0 0 1-3.2 4.2M6.6 6.6C3.9 8.3 2 12 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/>',
   "folder-open": '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1M3 7v10a2 2 0 0 0 2 2h12.5a2 2 0 0 0 1.9-1.4L21.5 12a1 1 0 0 0-1-1.4H7.4a2 2 0 0 0-1.9 1.4L3 19"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17h.01"/>',
@@ -695,6 +774,8 @@ const ICONS = {
   unlink: '<path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 1.5 9.8M8 12h3M3 3l18 18"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
   zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  tag: '<path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/>',
   chevron: '<path d="m7 10 5 5 5-5"/>',
   more: '<path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3"/>',
 };
@@ -752,10 +833,28 @@ function colorFor(name) {
   return GROUP_COLORS[n % GROUP_COLORS.length];
 }
 
-function toast(message, kind = "", ms = kind === "error" ? 5000 : 2600) {
-  const t = h("div", { class: `toast ${kind}` }, message);
+const groupColor = (g) => GROUP_COLORS[Math.max(0, board.groups.indexOf(g)) % GROUP_COLORS.length];
+
+// States are coloured squares and groups wear a tag, so the two never look alike.
+function groupTag(color) {
+  const el = icon("tag");
+  el.classList.add("gtag");
+  if (color) el.style.setProperty("--g", color);
+  return el;
+}
+
+// With `go`, the toast is a link: clicking it runs `go`, and it stays while the pointer is on it.
+function toast(message, kind = "", ms = kind === "error" ? 5000 : 2600, go = null) {
+  const t = h(go ? "button" : "div", { type: go ? "button" : null, class: `toast ${kind}${go ? " go" : ""}`, onclick: go ? () => { t.remove(); go(); } : null }, message);
   $("#toasts").append(t);
-  setTimeout(() => t.remove(), ms);
+  // Older toasts make way, so a burst of activity cannot cover the screen.
+  const all = $("#toasts").children;
+  while (all.length > 4) all[0].remove();
+  let timer = setTimeout(() => t.remove(), ms);
+  if (go) {
+    t.addEventListener("pointerenter", (e) => { if (e.pointerType === "mouse") clearTimeout(timer); });
+    t.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") timer = setTimeout(() => t.remove(), 1500); });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1557,9 +1656,10 @@ let writes = 0;         // saves started, so a poll that overlapped one is dropp
 let saveQueue = Promise.resolve();
 
 const LEVEL_GAP = { min: 30, max: 500 };
-const MAX_ZOOM = 2;
+const MAX_ZOOM = 2, MIN_ZOOM = 0.2;
 // Phone-sized screens, in portrait or landscape. Keep in step with the media queries of the phone layout.
-const phone = matchMedia("(max-width: 640px), (max-height: 480px) and (pointer: coarse)");
+const phone = matchMedia("(max-width: 640px), (pointer: coarse) and (max-device-width: 480px), (pointer: coarse) and (max-device-height: 480px)");
+const coarse = matchMedia("(pointer: coarse)");
 // The view chosen on wider screens, and the one chosen on phones, which start on the board.
 const prefs = (() => {
   const defaults = { view: "graph", phoneView: "board", orient: "horizontal", arrange: "auto", hideDone: false, theme: null, levelGap: 70 };
@@ -1568,7 +1668,7 @@ const prefs = (() => {
 const savePrefs = () => { try { localStorage.setItem("kanvas:prefs", JSON.stringify(prefs)); } catch (e) { /* storage disabled */ } };
 
 const viewPref = () => (phone.matches ? "phoneView" : "view");
-const ui = { view: prefs[viewPref()], selected: null, search: "", states: new Set(), hover: null, link: null, editingDesc: false, focusDesc: false, editingNote: null, focusNote: false, panelStale: false, editingTitle: false };
+const ui = { view: prefs[viewPref()], selected: null, search: "", states: new Set(), groups: new Set(), hover: null, link: null, editingDesc: false, focusDesc: false, editingNote: null, focusNote: false, panelStale: false, editingTitle: false };
 // Unsaved text in the panel survives re-renders caused by agent changes.
 // descBase is the description as it was when editing began, to notice an agent changing it meanwhile.
 const drafts = { desc: null, descBase: null, note: new Map(), noteEdit: null };
@@ -1770,20 +1870,37 @@ function applyRemote(fresh) {
 
 const revised = (old, t) => old.state === "proposed" && t.state === "proposed" && ["title", "desc", "group", "deps"].some((k) => !sameJson(old[k], t[k]));
 
-// What agents did since the last poll, as toasts. The author is only known when the move added a note.
+// What agents did since the last poll, as toasts that lead to the task, and in the activity list of the inbox.
+// `where` is another board's { name, title }, or null for this one. The author is only known when the move added a note.
 const ACTIVITY = { proposed: "proposed", doing: "started", review: "finished", done: "finished", todo: "paused" };
-function announce(moves, withdrawn) {
+// A plan arrives as many proposals at once, so planning toasts only on the board it happens on.
+const PLANNING = new Set(["proposed", "revised", "withdrew"]);
+function announce(moves, withdrawn, where = null, b = board) {
   const shown = moves.filter(([t, old]) => ACTIVITY[t.state] && !(t.state === "todo" && (!old || old.state !== "doing")));
-  if (shown.length + withdrawn.length > 3) { toast(`${shown.length + withdrawn.length} tasks changed`); return; }
-  for (const t of withdrawn) toast([h("span", { class: "cid" }, t.id), ` ${t.title} `, "was withdrawn"], "activity", 4200);
-  for (const [t, old] of shown) {
-    const last = t.notes[t.notes.length - 1], by = last && t.notes.length > (old ? old.notes.length : 0) ? last.by : null;
-    const verb = old && revised(old, t) ? "revised" : !old && t.state === "proposed" ? "proposed" : ACTIVITY[t.state];
-    const what = [h("span", { class: "cid" }, t.id), ` ${t.title} `, h("span", { class: `badge s-${vstate(t)}` }, LABEL[vstate(t)])];
-    toast(by ? [agentMark(by), h("b", {}, by), ` ${verb} `, what] : [what.slice(0, 2), `was ${verb} `, what[2]], "activity", 4200);
-  }
+  const name = where ? where.name : boardHere(), ix = indexOf(b), cover = yoloCoverIn(b);
+  let events = [
+    ...withdrawn.map((t) => ({ id: t.id, title: t.title, verb: "withdrew", state: null, by: null })),
+    ...shown.map(([t, old]) => {
+      const last = t.notes[t.notes.length - 1], by = last && t.notes.length > (old ? old.notes.length : 0) ? last.by : null;
+      const verb = old && revised(old, t) ? "revised" : !old && t.state === "proposed" ? "proposed" : ACTIVITY[t.state];
+      return { id: t.id, title: t.title, verb, state: vstateIn(ix, t, cover), by };
+    }),
+  ];
+  if (where) events = events.filter((e) => !PLANNING.has(e.verb));
+  if (!events.length) return;
+  const there = where ? h("span", { class: "where" }, where.title || where.name) : null;
+  if (events.length > 3) return toast([there, h("span", { class: "msg" }, `${events.length} tasks changed`)], "activity", 4200, where ? () => goTask(where.name) : null);
+  for (const e of events) toast([there && there.cloneNode(true), ...activityLine(e)], "activity", 4200, e.state ? () => goTask(name, e.id) : null);
 }
 
+// "claude finished BE-02 Fetch forecasts [Review]", or "Finished BE-02 Fetch forecasts" when the author is unknown.
+// The verb comes before the title, which long titles cut short.
+function activityLine(e) {
+  const task = [h("span", { class: "cid" }, e.id), " ", e.title];
+  const verb = e.verb === "withdrew" ? "Withdrawn" : e.verb[0].toUpperCase() + e.verb.slice(1);
+  const words = e.by && e.verb !== "withdrew" ? [h("b", {}, e.by), ` ${e.verb} `, task] : [h("b", {}, verb), " ", task];
+  return [e.by ? agentMark(e.by) : null, h("span", { class: "msg" }, words), e.state ? h("span", { class: `badge s-${e.state}` }, LABEL[e.state]) : null];
+}
 // ---------------------------------------------------------------------------
 // Undo and redo of the human's own changes
 // ---------------------------------------------------------------------------
@@ -1908,6 +2025,13 @@ const ops = {
     }
     Object.assign(t, patch);
   },
+  // A checklist item is known by its text, and its rank tells identical items apart by their order, so a
+  // replay still finds it after agents edit the rest of the description. An item already in the wanted state is left alone.
+  checkItem: (id, text, rank, checked) => (b) => {
+    const t = mustFind(b, id), desc = toggleTask(t.desc, text, rank, checked);
+    if (desc == null) throw new Error(`That checklist item in ${t.id} changed meanwhile`);
+    t.desc = desc;
+  },
   // `seen` is the task as the human saw it, so a replay never undoes a move an agent made meanwhile,
   // nor approves a proposal an agent rewrote.
   state: (id, seen, state, text, at = nowIso()) => (b) => {
@@ -2001,6 +2125,7 @@ const ops = {
 
 function matches(t) {
   if (ui.states.size && !ui.states.has(vstate(t))) return false;
+  if (ui.groups.size && !ui.groups.has(laneId(t) || "")) return false;
   const q = ui.search.trim().toLowerCase();
   if (!q) return true;
   const g = groupOf(t);
@@ -2064,6 +2189,25 @@ function renderHeader() {
       },
     }, hidden ? icon("eye-off") : h("span", { class: "dot" }), h("span", { class: "lbl" }, LABEL[s]), h("b", {}, counts[s]));
   }));
+
+  for (const id of ui.groups) if (id && !board.groups.some((g) => g.id === id)) ui.groups.delete(id);
+  const gf = $("#group-filter"), only = ui.groups.size === 1 ? [...ui.groups][0] : null;
+  const og = only ? board.groups.find((g) => g.id === only) : null;
+  const gname = !ui.groups.size ? "Groups" : only === null ? `${ui.groups.size} groups` : og ? og.name : "No group";
+  gf.hidden = !board.groups.length && !ui.groups.size;
+  gf.classList.toggle("on", ui.groups.size > 0);
+  gf.style.setProperty("--g", og ? groupColor(og) : "var(--accent)");
+  gf.replaceChildren(groupTag(og ? groupColor(og) : null), h("span", { class: "lbl" }, gname), icon("chevron"));
+  gf.dataset.tip = ui.groups.size ? `Showing only ${only === null ? `${ui.groups.size} groups` : gname}. Click to change.` : "Show only some groups";
+  gf.setAttribute("aria-label", ui.groups.size ? `Filter by group: ${gname}` : "Filter by group");
+
+  renderInboxButton();
+  const hd = $("#hide-done");
+  hd.classList.toggle("on", !!prefs.hideDone);
+  hd.setAttribute("aria-pressed", String(!!prefs.hideDone));
+  hd.dataset.tip = prefs.hideDone ? `${counts.done} finished task${counts.done === 1 ? " is" : "s are"} hidden. Click to show them.` : "Hide finished tasks";
+  hd.setAttribute("aria-label", "Hide finished tasks");
+  hd.replaceChildren(icon(prefs.hideDone ? "eye-off" : "eye"));
 
   const total = board.tasks.length || 1;
   $("#progress").replaceChildren(...["done", "review", "doing", "todo", "blocked", "proposed"].map((s) =>
@@ -2159,11 +2303,14 @@ function fillCard(el, t) {
 
 // The layout only changes with what it reads, so selecting or annotating tasks reuses it.
 let layoutKey = "";
+const inPickedGroups = (t) => !ui.groups.size || ui.groups.has(laneId(t) || "");
+// The graph leaves out finished tasks while they are hidden, and the groups the filter leaves out.
+const graphTasks = () => board.tasks.filter((t) => !(prefs.hideDone && t.state === "done") && inPickedGroups(t));
 function renderGraph() {
-  const tasks = board.tasks.filter((t) => !(prefs.hideDone && t.state === "done"));
-  const opts = { vertical: prefs.orient === "vertical", levelGap: prefs.levelGap, manual: prefs.arrange === "manual", emptyLanes: !prefs.hideDone };
+  const tasks = graphTasks();
+  const opts = { vertical: prefs.orient === "vertical", levelGap: prefs.levelGap, manual: prefs.arrange === "manual", emptyLanes: !prefs.hideDone && !ui.groups.size };
   // Lane counts include hidden finished tasks, so every task is part of the key.
-  const k = JSON.stringify([opts, prefs.hideDone, board.groups.map((g) => [g.id, g.name]), board.tasks.map((t) => [t.id, t.group, t.deps, t.state])]);
+  const k = JSON.stringify([opts, prefs.hideDone, [...ui.groups], board.groups.map((g) => [g.id, g.name]), board.tasks.map((t) => [t.id, t.group, t.deps, t.state])]);
   const L = k === layoutKey && lastLayout ? lastLayout : layout(tasks, board, opts);
   layoutKey = k;
   lastLayout = L;
@@ -2176,7 +2323,7 @@ function renderGraph() {
     class: "lane", "data-group": l.id || "", style: `left:${l.left}px;top:${l.top}px;height:${l.height}px;width:${l.width}px`,
   },
   h("div", { class: "lane-head" },
-    h("span", { class: "lane-swatch", style: `background:${l.color}` }),
+    groupTag(l.color),
     h("span", { class: "lane-name" }, l.name),
     l.id ? h("span", { class: "lane-prefix" }, l.id) : null,
     h("span", { class: "lane-count", title: "done / total" }, `${l.done}/${l.total}`),
@@ -2203,7 +2350,6 @@ function renderGraph() {
   $("#edge-layer").style.setProperty("--flow-phase", `${-(performance.now() % 3000)}ms`);
   $("#edge-layer").innerHTML = paths;
   $("#edge-hits").innerHTML = hits;
-
   const seen = new Set();
   for (const t of tasks) {
     const k = key(t.id);
@@ -2224,11 +2370,12 @@ function renderGraph() {
   const empty = $("#graph-empty");
   empty.hidden = tasks.length > 0;
   if (!tasks.length) {
+    const picked = board.tasks.some(inPickedGroups);
     empty.replaceChildren(h("div", {},
-      h("h2", {}, board.tasks.length ? "Everything here is done" : "An empty board"),
-      board.tasks.length
-        ? h("p", {}, "Finished tasks are hidden. Press H to show them.")
-        : h("p", {}, "Add the first task, or ask your agent to interview you and plan the project."),
+      h("h2", {}, !board.tasks.length ? "An empty board" : picked ? "Everything here is done" : "Nothing in these groups"),
+      !board.tasks.length ? h("p", {}, "Add the first task, or ask your agent to interview you and plan the project.")
+        : picked ? h("p", {}, "Finished tasks are hidden. Press H to show them.")
+        : h("p", {}, "Pick other groups, or press Escape to show them all."),
       board.tasks.length || store.readOnly ? null : h("button", { class: "primary", onclick: () => newTaskDialog() }, icon("plus"), "New task")));
   }
   applyDim();
@@ -2260,7 +2407,8 @@ function lineage(id) {
 function applyFocus() {
   const world = $("#world");
   const link = ui.link;
-  const focus = link ? null : ui.hover || (ui.selected && cardEls.has(key(ui.selected)) ? ui.selected : null);
+  // While picking, every card stays as bright as its pick state, so the open task lights up nothing.
+  const focus = link || picking ? null : ui.hover || (ui.selected && cardEls.has(key(ui.selected)) ? ui.selected : null);
   world.classList.toggle("focusing", !!(link || focus));
   if (!link && !focus) {
     for (const el of cardEls.values()) el.classList.remove("related");
@@ -2302,37 +2450,57 @@ function applyView(animate) {
   if (animate) setTimeout(() => world.classList.remove("animate"), 350);
 }
 
-// Room for the graph on screen, with a margin. The zoom bar floats over the graph.
-// Without a mouse the zoom bar never fades, so the graph fits above it.
+// Room for the graph on screen, with a margin, in viewport coordinates: the viewport less a task panel lying
+// over its left side. The zoom bar floats over the bottom right corner and stays visible with a mouse too,
+// faint until used, so `bar` is the corner the graph keeps clear of and `above` the room above it.
 function fitRoom() {
-  const vp = $("#viewport").getBoundingClientRect(), bar = $(".zoombar");
-  const below = bar && !matchMedia("(hover: hover)").matches ? vp.bottom - bar.getBoundingClientRect().top + 10 : 0;
-  return { vp, w: vp.width - 48, h: vp.height - 24 - Math.max(24, below) };
+  const vp = $("#viewport").getBoundingClientRect(), panel = $("#panel"), zb = $(".zoombar").getBoundingClientRect();
+  const left = !panel.hidden && getComputedStyle(panel).position === "absolute" ? Math.max(0, panel.getBoundingClientRect().right - vp.left) : 0;
+  const room = { left: left + 24, top: 24, right: vp.width - 24, bottom: vp.height - 24 };
+  const bar = zb.width ? { left: zb.left - vp.left - 10, top: zb.top - vp.top - 10 } : null;
+  return { room, bar, above: bar ? { ...room, bottom: Math.min(room.bottom, bar.top) } : room };
 }
 
+// The zoom, up to maxZoom, at which a W by H graph fits room r, and its place in the middle of r.
+// `fits` is that zoom before the smallest zoom.
+function fitIn(r, W, H, maxZoom) {
+  const fits = Math.min((r.right - r.left) / W, (r.bottom - r.top) / H, maxZoom), k = clamp(fits, MIN_ZOOM, maxZoom);
+  return { fits, k, x: r.left + Math.max(0, (r.right - r.left - W * k) / 2), y: r.top + Math.max(0, (r.bottom - r.top - H * k) / 2) };
+}
+
+// The graph goes in the middle of the room if it clears the zoom bar there, else above the bar or left of it,
+// whichever shows it larger.
 function fit(animate = true, maxZoom = 1) {
   stopGlide();
   if (!lastLayout) return;
-  const { vp, w, h } = fitRoom();
-  const W = lastLayout.width || 1, H = lastLayout.height || 1;
-  view.k = clamp(Math.min(w / W, h / H, maxZoom), 0.25, maxZoom);
-  view.x = Math.max(24, (vp.width - W * view.k) / 2);
-  view.y = 24 + Math.max(0, (h - H * view.k) / 2);
+  const W = lastLayout.width || 1, H = lastLayout.height || 1, { room, bar, above } = fitRoom();
+  let v = fitIn(room, W, H, maxZoom);
+  if (bar && v.x + W * v.k > bar.left && v.y + H * v.k > bar.top) {
+    const up = fitIn(above, W, H, maxZoom), left = fitIn({ ...room, right: Math.min(room.right, bar.left) }, W, H, maxZoom);
+    v = left.fits > up.fits ? left : up;
+  }
+  Object.assign(view, { k: v.k, x: v.x, y: v.y });
   applyView(animate);
 }
 
 // Picks the spacing at which the whole graph shows largest, then zooms to it. Of the spacings that
 // show it equally large, the widest wins, so arrows get the most room.
 function fillScreen() {
-  const tasks = board.tasks.filter((t) => !(prefs.hideDone && t.state === "done"));
+  const tasks = graphTasks();
   if (!tasks.length) return fit(true);
-  const opts = { vertical: prefs.orient === "vertical", manual: prefs.arrange === "manual", emptyLanes: !prefs.hideDone };
+  const opts = { vertical: prefs.orient === "vertical", manual: prefs.arrange === "manual", emptyLanes: !prefs.hideDone && !ui.groups.size };
   // Size grows in step with the spacing, so two layouts tell it for every spacing.
   const a = layout(tasks, board, { ...opts, levelGap: LEVEL_GAP.min }), b = layout(tasks, board, { ...opts, levelGap: LEVEL_GAP.max });
-  const { w, h } = fitRoom(), span = LEVEL_GAP.max - LEVEL_GAP.min;
+  // Spacings are compared in the room above the zoom bar, where the graph can take the whole width. With the
+  // full height, a graph narrow enough to pass beside the bar would win by the bar's height and squeeze the arrows.
+  const { above } = fitRoom(), span = LEVEL_GAP.max - LEVEL_GAP.min;
+  // Across the flow the spacing changes nothing, so a graph too broad for the screen even at the smallest zoom
+  // counts as just fitting there, and the spacing stretches it along the flow only as far as the screen goes.
+  const broadest = (opts.vertical ? above.right - above.left : above.bottom - above.top) / MIN_ZOOM;
   const zoomAtGap = (gap) => {
     const f = (gap - LEVEL_GAP.min) / span;
-    return Math.min(w / (a.width + (b.width - a.width) * f), h / (a.height + (b.height - a.height) * f), MAX_ZOOM);
+    const W = a.width + (b.width - a.width) * f, H = a.height + (b.height - a.height) * f;
+    return fitIn(above, opts.vertical ? Math.min(W, broadest) : W, opts.vertical ? H : Math.min(H, broadest), MAX_ZOOM).fits;
   };
   let best = LEVEL_GAP.min, bestK = zoomAtGap(best);
   for (let gap = LEVEL_GAP.min + 10; gap <= LEVEL_GAP.max; gap += 10) {
@@ -2352,8 +2520,8 @@ function glideTo(gap) {
   renderGraph();
   fit(false, MAX_ZOOM);
   const to = { x: view.x, y: view.y, k: view.k }, size1 = { W: lastLayout.width, H: lastLayout.height };
-  const { vp } = fitRoom(), cx = vp.width / 2, cy = vp.height / 2;
-  // Where the middle of the screen falls, as a share of the graph's size.
+  const { room } = fitRoom(), cx = (room.left + room.right) / 2, cy = (room.top + room.bottom) / 2;
+  // Where the middle of the room falls, as a share of the graph's size.
   const u0 = (cx - from.x) / (from.k * size0.W), v0 = (cy - from.y) / (from.k * size0.H);
   const u1 = (cx - to.x) / (to.k * size1.W), v1 = (cy - to.y) / (to.k * size1.H);
   const done = () => { stopGlide(); prefs.levelGap = gap; $("#spread").value = gap; savePrefs(); renderGraph(); Object.assign(view, to); applyView(false); };
@@ -2389,7 +2557,7 @@ function stopGlide() {
 
 function zoomAt(factor, cx, cy) {
   stopGlide();
-  const k = clamp(view.k * factor, 0.2, MAX_ZOOM);
+  const k = clamp(view.k * factor, MIN_ZOOM, MAX_ZOOM);
   const wx = (cx - view.x) / view.k, wy = (cy - view.y) / view.k;
   view.k = k;
   view.x = cx - wx * k;
@@ -2479,15 +2647,55 @@ function laneDropTarget(id, across) {
   return { before: before && before.id, line: before ? start(before) - LANE_GAP / 2 : last ? end(last) + LANE_GAP / 2 : 0 };
 }
 
+// A finger held still on the graph opens the menu of what is under it. `at` is when it last did.
+const longPress = { at: 0, cancel: () => {} };
+const LONG_PRESS_MS = 500;
+
 function setupGraphInput() {
   const vp = $("#viewport"), world = $("#world");
-  let drag = null;
+  let drag = null, pressTimer = 0;
+  const touches = new Map(); // fingers on the graph: pointer id -> { clientX, clientY }
   const toWorld = (e) => {
     const r = vp.getBoundingClientRect();
     return { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k };
   };
+  const at = (e) => ({ clientX: e.clientX, clientY: e.clientY });
+  // Two fingers: the distance between them sets the zoom, and the graph point under their midpoint stays under it.
+  const pinch = () => {
+    const [a, b] = touches.values(), r = vp.getBoundingClientRect();
+    return { d: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)), x: (a.clientX + b.clientX) / 2 - r.left, y: (a.clientY + b.clientY) / 2 - r.top };
+  };
+  longPress.cancel = () => {
+    clearTimeout(pressTimer);
+    if (drag && drag.mode === "pan" && !drag.moved) drag = null;
+  };
   vp.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || e.target.closest("button")) return;
+    if (e.pointerType === "touch") {
+      touches.set(e.pointerId, at(e));
+      try { vp.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
+      e.preventDefault();
+      if (touches.size > 2) return;
+      if (touches.size === 2) {
+        clearTimeout(pressTimer);
+        if (drag) end({ type: "pointercancel" });
+        stopGlide();
+        const p = pinch();
+        drag = { mode: "pinch", ...p, k: view.k, vx: view.x, vy: view.y };
+        return;
+      }
+      clearTimeout(pressTimer);
+      if (!picking) {
+        const x = e.clientX, y = e.clientY, el = e.target;
+        pressTimer = setTimeout(() => {
+          if (!drag || drag.mode !== "pan" || drag.moved || touches.size !== 1) return;
+          drag = null;
+          longPress.at = Date.now();
+          closeMenu();
+          if (contextMenuAt(el, x, y) && navigator.vibrate) navigator.vibrate(10);
+        }, LONG_PRESS_MS);
+      }
+    }
     const handle = !picking && e.target.closest(".handle");
     if (handle) {
       const from = handle.parentElement.dataset.id, p = lastLayout.pos.get(key(from)), incoming = handle.classList.contains("in");
@@ -2504,10 +2712,21 @@ function setupGraphInput() {
     e.preventDefault();
   });
   vp.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "touch" && touches.has(e.pointerId)) touches.set(e.pointerId, at(e));
     if (!drag) return;
+    if (drag.mode === "pinch") {
+      if (touches.size < 2) return;
+      const p = pinch(), k = clamp(drag.k * p.d / drag.d, MIN_ZOOM, MAX_ZOOM);
+      const wx = (drag.x - drag.vx) / drag.k, wy = (drag.y - drag.vy) / drag.k;
+      Object.assign(view, { k, x: p.x - wx * k, y: p.y - wy * k });
+      applyView(false);
+      return;
+    }
     if (drag.mode === "pan") {
       const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
-      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+      // A finger wobbles while it taps, so it moves further before the tap becomes a pan.
+      if (!drag.moved && Math.hypot(dx, dy) < (e.pointerType === "touch" ? 10 : 4)) return;
+      clearTimeout(pressTimer);
       const arranging = !drag.moved && prefs.arrange === "manual" && !store.readOnly && !picking;
       const start = toWorld({ clientX: drag.sx, clientY: drag.sy });
       if (arranging && drag.card) {
@@ -2599,14 +2818,27 @@ function setupGraphInput() {
         if (e.type === "pointerup") commit(ops.addDep(task, dep)).then((ok) => ok && toast(`${task} now depends on ${dep}`));
       }
     } else if (!d.moved && e.type === "pointerup") {
-      if (picking) { if (d.card) pickToggle(d.card.dataset.id); }
-      else if (d.edge && !d.card) showEdgeMenu(d.edge, e.clientX, e.clientY);
+      if (picking) { if (d.card) pickToggle(d.card.dataset.id); }      else if (d.edge && !d.card) showEdgeMenu(d.edge, e.clientX, e.clientY);
       else select(d.card ? d.card.dataset.id : null);
     }
   };
-  vp.addEventListener("pointerup", end);
-  vp.addEventListener("pointercancel", end);
-  $("#edge-hits").addEventListener("pointerover", (e) => { if (!drag && !menuEl && !picking && e.target.dataset.from) { const p = edgeFor(e.target); if (p) { p.classList.add("hover"); markEdge(p); } } });
+  const up = (e) => {
+    if (e.pointerType === "touch") {
+      if (!touches.delete(e.pointerId)) return;
+      clearTimeout(pressTimer);
+      if (drag && drag.mode === "pinch") {
+        const [rest] = touches.values();
+        drag = rest ? { mode: "pan", sx: rest.clientX, sy: rest.clientY, vx: view.x, vy: view.y, moved: true } : null;
+        return;
+      }
+      if (touches.size) return;
+    }
+    end(e);
+  };
+  vp.addEventListener("pointerup", up);
+  vp.addEventListener("pointercancel", up);
+  // A finger "hovers" from the moment it touches, which would light up arrows before the tap or long press decides anything.
+  $("#edge-hits").addEventListener("pointerover", (e) => { if (e.pointerType !== "touch" && !drag && !menuEl && !picking && e.target.dataset.from) { const p = edgeFor(e.target); if (p) { p.classList.add("hover"); markEdge(p); } } });
   $("#edge-hits").addEventListener("pointerout", (e) => { if (e.target.dataset.from) { const p = edgeFor(e.target); if (p) { p.classList.remove("hover"); markEdge(p); } } });
   vp.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -2619,6 +2851,7 @@ function setupGraphInput() {
     }
   }, { passive: false });
   $("#cards").addEventListener("pointerover", (e) => {
+    if (e.pointerType === "touch") return;
     const card = e.target.closest(".card");
     const id = card ? card.dataset.id : null;
     if (id !== ui.hover && !drag && !picking) { ui.hover = id; applyFocus(); }
@@ -2670,7 +2903,7 @@ function kanbanCard(t) {
     class: `kcard s-${vs}${same(ui.selected, t.id) ? " sel" : ""}`, "data-id": t.id, draggable: store.readOnly ? null : "true",
     onclick: () => (picking ? pickToggle(t.id) : select(t.id)),
   },
-  h("div", { class: "card-head" }, h("span", { class: "cid" }, t.id), h("span", { class: "head-end" }, yoloTag(t), g ? h("span", { class: "gchip", style: `--g:${GROUP_COLORS[board.groups.indexOf(g) % GROUP_COLORS.length]}` }, h("i"), g.name) : null)),
+  h("div", { class: "card-head" }, h("span", { class: "cid" }, t.id), h("span", { class: "head-end" }, yoloTag(t), g ? h("span", { class: "gchip" }, groupTag(groupColor(g)), g.name) : null)),
   h("div", { class: "card-title" }, t.title),
   cardFoot(t));
   el.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/kanvas-id", t.id); e.dataTransfer.effectAllowed = "move"; el.classList.add("dragging"); });
@@ -2795,7 +3028,7 @@ function renderPanel() {
   const panel = $("#panel");
   const t = ui.selected && get(ui.selected);
   if (!t) { showPanel(panel, false); return; }
-  if (panel.contains(document.activeElement) && document.activeElement.matches("input, textarea, select")) {
+  if (panel.contains(document.activeElement) && document.activeElement.matches("input:not([type=checkbox]), textarea, select")) {
     ui.panelStale = true;
     return;
   }
@@ -2816,15 +3049,15 @@ function fillPanel(panel, t) {
   title.addEventListener("change", () => { const v = title.value.replace(/\s+/g, " ").trim(); if (v && v !== t.title) commit(ops.set(t.id, { title: v }, { title: t.title })); else title.value = t.title; });
 
   const g = board.groups.find((x) => x.id === t.group);
-  const gColor = g ? GROUP_COLORS[board.groups.indexOf(g) % GROUP_COLORS.length] : "var(--border-strong)";
+  const gColor = g ? groupColor(g) : "var(--faint)";
   const below = (fn, right) => (e) => dropdown(e.currentTarget, fn(), { alignRight: right, gap: 4 });
   const head = h("div", { class: "p-head" },
     h("button", { class: "ghost p-back", "aria-label": `Back to the ${ui.view}`, onclick: () => select(null) }, icon("left")),
     h("button", { class: "cid", title: "Copy ID", onclick: () => copy(t.id) }, t.id),
     ro ? h("span", { class: `badge s-${vs}` }, LABEL[vs])
       : h("button", { class: `pick badge s-${vs}`, title: "Change the state", "aria-haspopup": "menu", "aria-expanded": "false", onclick: below(() => stateMenu(t)) }, LABEL[vs], icon("chevron")),
-    ro ? (g ? h("span", { class: "gpick pick" }, h("i", { style: `--g:${gColor}` }), g.name) : null)
-      : h("button", { class: "gpick pick", title: "Change the group", "aria-haspopup": "menu", "aria-expanded": "false", onclick: below(() => groupMenu(t)) }, h("i", { style: `--g:${gColor}` }), g ? g.name : "No group", icon("chevron")),
+    ro ? (g ? h("span", { class: "gpick pick" }, groupTag(gColor), g.name) : null)
+      : h("button", { class: "gpick pick", title: "Change the group", "aria-haspopup": "menu", "aria-expanded": "false", onclick: below(() => groupMenu(t)) }, groupTag(gColor), g ? g.name : "No group", icon("chevron")),
     h("span", { class: "spacer" }),
     h("button", { class: "ghost icon-btn", title: "More", "aria-label": "More actions", "aria-haspopup": "menu", "aria-expanded": "false", onclick: below(() => panelMenu(t), true) }, icon("more")),
     h("button", { class: "ghost icon-btn p-close", title: "Close (Esc)", "aria-label": "Close", onclick: () => select(null) }, icon("x")));
@@ -2854,11 +3087,12 @@ function fillPanel(panel, t) {
       setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0);
     }
   } else if (t.desc) {
-    desc = h("div", { class: "md", html: markdown(t.desc), ondblclick: ro ? null : editDesc });
+    desc = h("div", { class: "md", html: markdown(t.desc), ondblclick: ro ? null : (e) => { if (!e.target.closest(".tick")) editDesc(); } });
+    if (!ro) tickable(desc, t);
   } else {
     desc = ro ? null : h("button", { class: "ghost add-line", onclick: editDesc }, icon("plus"), "Add a description");
   }
-  const checks = [...(t.desc || "").matchAll(/^\s*[-*+] \[([ xX])\]/gm)].map((m) => m[1] !== " ");
+  const checks = taskItems(t.desc).map((x) => x.checked);
   const done = checks.filter(Boolean).length;
 
   const noteBox = h("textarea", { rows: 1, value: drafts.note.get(t.id) || "", placeholder: "Add a note for your agent or yourself", "aria-label": "New note" });
@@ -2897,6 +3131,21 @@ function fillPanel(panel, t) {
 }
 
 function editDesc() { ui.editingDesc = true; ui.focusDesc = true; drafts.descBase = get(ui.selected)?.desc ?? null; renderPanel(); }
+
+// Lets the checkboxes of a rendered description be ticked in place; taskItems() lists them in the same order.
+function tickable(el, t) {
+  const boxes = el.querySelectorAll("input[type=checkbox]"), items = taskItems(t.desc);
+  if (boxes.length !== items.length) return;
+  boxes.forEach((box, i) => {
+    const { text } = items[i], rank = items.slice(0, i).filter((x) => x.text === text).length;
+    const tick = h("label", { class: "tick" });
+    box.replaceWith(tick);
+    tick.append(box);
+    box.disabled = false;
+    box.setAttribute("aria-label", box.closest("li").textContent.trim());
+    box.addEventListener("change", () => commit(ops.checkItem(t.id, text, rank, box.checked)).then((ok) => ok || renderPanel()));
+  });
+}
 
 function autosize(ta) {
   if (ta.closest(".desc-edit")) return;
@@ -2947,7 +3196,7 @@ function stateMenu(t) {
 
 function groupMenu(t) {
   return [{ head: "Group" }, ...board.groups.map((g, i) => ({
-    label: [h("i", { class: "gsw", style: `--g:${GROUP_COLORS[i % GROUP_COLORS.length]}` }), g.name], icon: g.id === t.group ? "check" : null,
+    label: [groupTag(GROUP_COLORS[i % GROUP_COLORS.length]), g.name], icon: g.id === t.group ? "check" : null,
     run: () => { if (g.id !== t.group) commit(ops.set(t.id, { group: g.id }, { group: t.group })); },
   })), "sep", { label: "No group", icon: t.group ? null : "check", run: () => { if (t.group) commit(ops.set(t.id, { group: null }, { group: t.group })); } }];
 }
@@ -3044,8 +3293,10 @@ function modal(title, content, { ok = "Save", danger = false, cancel = "Cancel",
     const okBtn = h("button", { value: "ok", class: okClass || (danger ? "danger primary" : "primary") }, ok);
     const form = h("form", { method: "dialog" }, h("h3", {}, title), content,
       h("div", { class: "dlg-actions" }, okBtn, cancel ? h("button", { value: "cancel", formnovalidate: true }, cancel) : null));
-    const dlg = h("dialog", { class: "dlg" }, form);
+    const dlg = h("dialog", { class: "dlg", tabindex: "-1" }, form);
     form.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); form.requestSubmit(okBtn); } });
+    // Pressing a button leaves the focus where it is, so a field keeps its list (and the phone its keyboard) until the tap has landed.
+    form.addEventListener("mousedown", (e) => { if (e.target.closest("button")) e.preventDefault(); });
     dlg.addEventListener("close", () => {
       if (dlg.dataset.paused) return;
       const data = dlg.returnValue === "ok" ? new FormData(form) : null;
@@ -3053,9 +3304,16 @@ function modal(title, content, { ok = "Save", danger = false, cancel = "Cancel",
       resolve(data);
     });
     document.body.append(dlg);
-    dlg.showModal();
-    (form.querySelector("input:not([type=checkbox]), textarea, select") || okBtn).focus();
+    showDialog(dlg);
   });
+}
+
+// Opens a dialog. With a mouse or keyboard the first field takes the focus; on a
+// touch screen the dialog does, so the keyboard waits for a tap on a field.
+function showDialog(dlg) {
+  dlg.showModal();
+  if (coarse.matches) dlg.focus();
+  else (dlg.querySelector("input:not([type=checkbox]), textarea, select") || dlg.querySelector("button[value=ok]") || dlg).focus();
 }
 
 // The board's address for phones on Tailscale, as a QR code; opens Kanvas to phones first if needed.
@@ -3193,9 +3451,9 @@ function pickOnGraph(picker, dlg) {
       picking = null;
       bar.remove();
       document.body.classList.remove("picking");
-      if (ui.view !== view) setView(view, false); else applyPick();
+      if (ui.view !== view) setView(view, false); else { applyFocus(); applyPick(); }
       delete dlg.dataset.paused;
-      dlg.showModal();
+      showDialog(dlg);
     },
   };
   document.body.append(bar);
@@ -3329,7 +3587,7 @@ function groupsDialog() {
       input.addEventListener("change", () => { const v = input.value.replace(/\s+/g, " ").trim(); if (v && v !== g.name) commit(ops.renameGroup(g.id, v)); });
       input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
       return h("div", { class: "group-row" },
-        h("span", { class: "lane-swatch", style: `background:${GROUP_COLORS[i % GROUP_COLORS.length]}` }), input,
+        groupTag(GROUP_COLORS[i % GROUP_COLORS.length]), input,
         h("span", { class: "cid", title: `${count} task${count === 1 ? "" : "s"}` }, g.id),
         h("span", { class: "btns" },
           h("button", { type: "button", class: "ghost", title: "Move up", "aria-label": "Move up", disabled: i === 0, onclick: () => { commit(ops.moveGroup(g.id, -1)); fill(); } }, icon("up")),
@@ -3443,6 +3701,101 @@ async function goToBoard(b) {
   location.assign(boardUrl(b));
 }
 
+// Opens a task, or a board when `id` is null, on this board or another one open here.
+async function goTask(name, id = null) {
+  if (!name || name === boardHere()) {
+    if (id && get(id)) { select(get(id).id); reveal(get(id).id); }
+    else if (id) toast(`${id} is no longer on this board`);
+    return;
+  }
+  for (let i = 0; pending && i < 100; i++) await new Promise((r) => setTimeout(r, 50));
+  location.assign(`/${encodeURIComponent(name)}/${id ? `#${encodeURIComponent(id)}` : ""}`);
+}
+
+// The other boards open here, read every few seconds so their agents' activity shows on this page too.
+const others = new Map(); // name -> { title, board, etag }
+const OTHERS_MS = 3000;
+async function watchOthers() {
+  if (store?.kind === "server" && document.visibilityState === "visible") {
+    const names = new Set(openBoards.map((b) => b.name));
+    for (const name of others.keys()) if (!names.has(name)) others.delete(name);
+    for (const info of openBoards) {
+      if (info.name === boardHere()) continue;
+      const seen = others.get(info.name);
+      try {
+        const r = await fetch(`/${encodeURIComponent(info.name)}/api/board`, { cache: "no-store", headers: seen?.etag ? { "If-None-Match": seen.etag } : {} });
+        if (r.status === 304) { seen.title = info.title; continue; }
+        if (!r.ok) continue;
+        const fresh = normalize(JSON.parse(await r.text())), title = fresh.title || info.name;
+        if (seen) {
+          const before = new Map(seen.board.tasks.map((t) => [key(t.id), t])), now = new Set(fresh.tasks.map((t) => key(t.id)));
+          const moves = fresh.tasks.filter((t) => { const old = before.get(key(t.id)); return !old || old.state !== t.state || revised(old, t); }).map((t) => [t, before.get(key(t.id))]);
+          const withdrawn = [...before.values()].filter((t) => t.state === "proposed" && !now.has(key(t.id)));
+          announce(moves, withdrawn, { name: info.name, title }, fresh);
+        }
+        others.set(info.name, { title, board: fresh, etag: r.headers.get("ETag") });
+      } catch (e) { /* a board that cannot be read now is tried again next time */ }
+    }
+    renderInboxButton();
+  }
+  setTimeout(watchOthers, OTHERS_MS);
+}
+
+// Work that waits for the human's review, latest first. Proposals stay out: plans bring many, often approved much later.
+function waitingIn(b) {
+  const lastAt = (t) => (t.notes.length ? Date.parse(t.notes[t.notes.length - 1].at) || 0 : 0);
+  return b.tasks.filter((t) => t.state === "review").map((t) => ({ t, state: "review" }))
+    .sort((x, y) => lastAt(y.t) - lastAt(x.t));
+}
+
+// This board first, then the others in the order Kanvas lists them.
+function inboxBoards() {
+  if (!board) return [];
+  const here = { name: boardHere(), title: board.title || boardHere() || "This board", board, here: true };
+  return [here, ...openBoards.filter((b) => b.name !== here.name && others.has(b.name)).map((b) => ({ name: b.name, ...others.get(b.name) }))];
+}
+
+// The inbox keeps nothing of its own: it reads the boards, so every browser and device shows the same.
+function renderInboxButton() {
+  const btn = $("#inbox");
+  if (!btn || !board) return;
+  btn.hidden = !!store?.readOnly;
+  const n = inboxBoards().reduce((sum, b) => sum + waitingIn(b.board).length, 0);
+  btn.replaceChildren(...compact(icon("bell"), n ? h("b", {}, n) : null));
+  btn.dataset.tip = n ? `${n} task${n === 1 ? "" : "s"} to review` : "Nothing to review";
+  btn.setAttribute("aria-label", `Inbox: ${btn.dataset.tip}`);
+  if (inboxBody?.isConnected) fillInbox(inboxBody);
+}
+
+let inboxBody = null;
+function inboxMenu() {
+  inboxBody = h("div", { class: "inbox-body" });
+  fillInbox(inboxBody);
+  return [{ node: inboxBody }];
+}
+
+// Rebuilt only when the list changes, so a row keeps keyboard focus while other boards are polled.
+function fillInbox(node) {
+  const go = (name, id) => () => { closeMenu(); goTask(name, id); };
+  const boards = inboxBoards(), several = boards.length > 1;
+  const sections = boards.map((b) => ({ b, items: waitingIn(b.board) })).filter((s) => s.items.length);
+  const sig = JSON.stringify(sections.map((s) => [s.b.name, s.items.map(({ t }) => [t.id, t.title, t.notes.length])]));
+  if (node.dataset.sig === sig) return;
+  node.dataset.sig = sig;
+  const row = (b, { t, state }) => {
+    const last = t.notes[t.notes.length - 1];
+    return h("button", { type: "button", class: "ib-row", onclick: go(b.name, t.id) },
+      h("span", { class: `badge s-${state}` }, LABEL[state]),
+      h("span", { class: "ib-main" }, h("span", { class: "ib-title" }, h("span", { class: "cid" }, t.id), " ", t.title),
+        last ? h("span", { class: "ib-sub" }, agentMark(String(last.by || "?")), `${last.by || "?"} · ${ago(last.at)}`) : null));
+  };
+  node.replaceChildren(...compact(
+    h("div", { class: "ib-head" }, "To review"),
+    sections.length ? sections.map((s) => [several ? h("div", { class: "ib-board" }, s.b.title, s.b.here ? h("small", {}, "this board") : null) : null, s.items.map((x) => row(s.b, x))])
+      : h("div", { class: "ib-empty" }, "Nothing to review. Finished work from every open board shows here."),
+  ));
+}
+
 async function switchBoard(step) {
   await refreshBoards();
   const n = openBoards.length, i = openBoards.findIndex((b) => b.name === boardHere());
@@ -3480,6 +3833,8 @@ function displayMenu() {
     node.replaceChildren(...compact(
       graph && h("div", { class: "d-head" }, "Graph"),
       graph && row("Direction", ["L"], seg("Direction", [["horizontal", "Left to right", "right"], ["vertical", "Top to bottom", "down"]], prefs.orient === "vertical" ? "vertical" : "horizontal", toggleOrient)),
+      // Phones have no room for the spacing slider in the zoom bar.
+      graph && phone.matches && row("Spacing between levels", [], h("input", { type: "range", class: "d-range", min: LEVEL_GAP.min, max: LEVEL_GAP.max, step: 10, value: prefs.levelGap, "aria-label": "Spacing between dependency levels", oninput: (e) => setLevelGap(+e.target.value) })),
       graph && row("Card order", ["M"], seg("Card order", [["auto", "Automatic"], ["manual", "Manual"]], manual ? "manual" : "auto", toggleArrange),
         manual ? "Cards keep the order you give them. Drag a card up or down or into another lane, or a lane by its name." : "Cards are arranged for fewer crossings and straighter arrows."),
       h("div", { class: "d-head" }, "Tasks"),
@@ -3488,6 +3843,30 @@ function displayMenu() {
       row("Theme", [], seg("Theme", [["light", "Light", "sun"], ["dark", "Dark", "moon"], [null, "Auto", "contrast"]], prefs.theme || null, setThemePref)),
     ));
     if (focused >= 0) (controls()[focused] || node.closest(".ctx-menu") || node).focus({ preventScroll: true });
+  };
+  fill();
+  return [{ node }];
+}
+
+// Ticked groups are the only ones shown; with none ticked, every group shows.
+function groupFilterMenu() {
+  const node = h("div", { class: "gf-body" });
+  const fill = () => {
+    const buttons = () => [...node.querySelectorAll("button")];
+    const focused = buttons().indexOf(document.activeElement);
+    const pick = (change) => () => { change(); fitted = false; render(); fill(); };
+    const row = (id, color, name) => {
+      const on = ui.groups.has(id), n = board.tasks.filter((t) => (laneId(t) || "") === id).length;
+      return h("button", { type: "button", "aria-pressed": String(on), onclick: pick(() => (on ? ui.groups.delete(id) : ui.groups.add(id))) },
+        icon(on ? "check" : null), groupTag(color), h("span", { class: "lbl" }, name), h("span", { class: "count" }, n));
+    };
+    node.replaceChildren(...compact(
+      h("button", { type: "button", "aria-pressed": String(!ui.groups.size), onclick: pick(() => ui.groups.clear()) }, icon(ui.groups.size ? null : "check"), h("span", { class: "lbl" }, "All groups")),
+      h("div", { class: "sep", role: "separator" }),
+      board.groups.map((g, i) => row(g.id, GROUP_COLORS[i % GROUP_COLORS.length], g.name)),
+      board.tasks.some((t) => !laneId(t)) && row("", null, "No group"),
+    ));
+    if (focused >= 0) (buttons()[focused] || node.closest(".ctx-menu") || node).focus({ preventScroll: true });
   };
   fill();
   return [{ node }];
@@ -3505,8 +3884,7 @@ function cardMenu(t) {
     "sep",
     { label: "New task blocked by this…", icon: "plus", run: () => newTaskDialog(t.group, { deps: [t.id] }) },
     t.state === "proposed" || t.state === "todo" ? { label: "New task that blocks this…", icon: "plus", run: () => newTaskDialog(t.group, { deps: [], blocks: [t.id] }) } : null,
-    { label: "Add dependency…", icon: "link", run: () => addDepDialog(t) },
-    t.deps.length ? { head: "Remove dependency on" } : null,
+    { label: "Add dependency…", icon: "link", run: () => addDepDialog(t) },    t.deps.length ? { head: "Remove dependency on" } : null,
     ...t.deps.map((d) => {
       const dep = get(d);
       return { label: [h("span", { class: "cid" }, d), dep ? dep.title : "missing task"], icon: "x", run: () => commit(ops.removeDep(t.id, d)) };
@@ -3558,29 +3936,36 @@ function spaceMenu(group) {
   ];
 }
 
+// The menu for what is under (x, y): a card, an arrow or empty space. Returns whether one opened.
+function contextMenuAt(el, x, y) {
+  let items = null, target = null;
+  const card = el.closest(".card[data-id], .kcard[data-id]");
+  const hit = el.closest("#edge-hits path");
+  if (card && get(card.dataset.id)) {
+    items = cardMenu(get(card.dataset.id));
+    target = card;
+  } else if (hit) {
+    showEdgeMenu(hit, x, y);
+    return true;
+  } else if (!store.readOnly) {
+    const lane = el.closest(".lane");
+    items = spaceMenu(lane ? lane.dataset.group : undefined);
+  }
+  if (!items) return false;
+  openMenu(x, y, items, target);
+  return true;
+}
+
 function setupMenus() {
   document.addEventListener("contextmenu", (e) => {
+    // Android also sends contextmenu for a long press, which the graph handles itself.
+    if (Date.now() - longPress.at < 1500 && e.target.closest("#viewport")) { e.preventDefault(); return; }
+    longPress.cancel();
     closeMenu();
     const el = e.target;
     if (picking && el.closest("#graph-view, #board-view")) { e.preventDefault(); return; }
     if (!board || !el.closest("#graph-view, #board-view") || el.closest("button, input, a, .zoombar, .empty")) return;
-    let items = null, target = null;
-    const card = el.closest(".card[data-id], .kcard[data-id]");
-    const hit = el.closest("#edge-hits path");
-    if (card && get(card.dataset.id)) {
-      items = cardMenu(get(card.dataset.id));
-      target = card;
-    } else if (hit) {
-      e.preventDefault();
-      showEdgeMenu(hit, e.clientX, e.clientY);
-      return;
-    } else if (!store.readOnly) {
-      const lane = el.closest(".lane");
-      items = spaceMenu(lane ? lane.dataset.group : undefined);
-    }
-    if (!items) return;
-    e.preventDefault();
-    openMenu(e.clientX, e.clientY, items, target);
+    if (contextMenuAt(el, e.clientX, e.clientY)) e.preventDefault();
   });
   document.addEventListener("pointerdown", (e) => { if (menuEl && !menuEl.contains(e.target)) closeMenu(); }, true);
   const close = () => closeMenu();
@@ -3658,6 +4043,51 @@ function markdown(src) {
     }
   }
   return html;
+}
+
+// The task-list items that markdown() renders as checkboxes, in the same order: each one's text, whether
+// it is checked, and where its mark (the character between the brackets) sits in `src`.
+function taskItems(src) {
+  const parts = String(src).split(/(\r\n?|\n)/), rows = [], items = [];
+  for (let k = 0, at = 0; k < parts.length; k += 2) {
+    rows.push({ line: parts[k], at });
+    at += parts[k].length + (parts[k + 1] || "").length;
+  }
+  const scan = (rows) => {
+    for (let i = 0; i < rows.length;) {
+      let m;
+      if (/^```/.test(rows[i].line)) {
+        for (i++; i < rows.length && !/^```/.test(rows[i].line); i++);
+        i++;
+      } else if (/^>\s?/.test(rows[i].line)) {
+        const quote = [];
+        for (; i < rows.length && (m = /^>\s?/.exec(rows[i].line)); i++) quote.push({ line: rows[i].line.slice(m[0].length), at: rows[i].at + m[0].length });
+        scan(quote);
+      } else if (/^\s*([-*+]|\d+[.)])\s+/.test(rows[i].line)) {
+        const list = [];
+        for (; i < rows.length; i++) {
+          const { line, at } = rows[i], lm = /^\s*([-*+]|\d+[.)])\s+(.*)$/.exec(line);
+          if (lm) list.push({ text: lm[2], at: at + line.length - lm[2].length });
+          else if (/^\s{2,}\S/.test(line) && list.length) list[list.length - 1].text += " " + line.trim();
+          else break;
+        }
+        for (const it of list) {
+          const cb = /^\[([ xX])\]\s+(.*)$/.exec(it.text);
+          if (cb) items.push({ text: cb[2], checked: cb[1] !== " ", at: it.at + 1 });
+        }
+      } else i++;
+    }
+  };
+  scan(rows);
+  return items;
+}
+
+// Checks or unchecks the `rank`-th item that reads `text` and keeps the rest of `src` as it is.
+// Returns null when there is no such item any more.
+function toggleTask(src, text, rank, checked) {
+  const item = taskItems(src).filter((x) => x.text === text)[rank];
+  if (!item) return null;
+  return item.checked === checked ? src : src.slice(0, item.at) + (checked ? "x" : " ") + src.slice(item.at + 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -3799,6 +4229,9 @@ function setupChrome() {
     fitViewport();
   }
   $("#display").onclick = (e) => dropdown(e.currentTarget, displayMenu(), { alignRight: true, cls: "dpop", role: "dialog", label: "Display options" });
+  $("#hide-done").onclick = toggleDone;
+  $("#inbox").onclick = (e) => dropdown(e.currentTarget, inboxMenu(), { alignRight: true, cls: "inbox-pop", role: "dialog", label: "Inbox" });
+  $("#group-filter").onclick = (e) => dropdown(e.currentTarget, groupFilterMenu(), { role: "dialog", label: "Filter by group" });
   prefs.levelGap = clamp(Math.round(+prefs.levelGap || 70), LEVEL_GAP.min, LEVEL_GAP.max);
   Object.assign($("#spread"), { min: LEVEL_GAP.min, max: LEVEL_GAP.max, value: prefs.levelGap });
   $("#spread").addEventListener("input", (e) => setLevelGap(+e.target.value));
@@ -3828,8 +4261,7 @@ function setupChrome() {
   });
   document.addEventListener("keydown", (e) => {
     if (!board || document.querySelector("dialog[open]")) return;
-    if (menuEl && e.key === "Escape") { e.preventDefault(); closeMenu(true); return; }
-    if (picking) {
+    if (menuEl && e.key === "Escape") { e.preventDefault(); closeMenu(true); return; }    if (picking) {
       if (e.key === "Escape") { e.preventDefault(); picking.cancel(); return; }
       if (e.key === "Enter" && !e.target.closest("button")) { e.preventDefault(); picking.finish(); return; }
       if (e.ctrlKey || e.metaKey || ["n", "?", "/", "h"].includes(e.key.toLowerCase())) return;
@@ -3865,7 +4297,7 @@ function setupChrome() {
       h: toggleDone, l: toggleOrient, m: () => ui.view === "graph" && toggleArrange(), f: () => fit(true), "?": helpDialog,
       "[": () => setLevelGap(prefs.levelGap - 30), "]": () => setLevelGap(prefs.levelGap + 30),
       "+": () => zoomAt(1.2, r.width / 2, r.height / 2), "=": () => zoomAt(1.2, r.width / 2, r.height / 2), "-": () => zoomAt(1 / 1.2, r.width / 2, r.height / 2),
-      Escape: () => { if (ui.selected) select(null); else if (ui.states.size || ui.search) { ui.states.clear(); ui.search = ""; search.value = ""; render(); } },
+      Escape: () => { if (ui.selected) select(null); else if (ui.states.size || ui.groups.size || ui.search) { if (ui.groups.size) fitted = false; ui.states.clear(); ui.groups.clear(); ui.search = ""; search.value = ""; render(); } },
     };
     const fn = actions[e.key] || actions[e.key.toLowerCase()];
     if (fn) { e.preventDefault(); fn(); }
@@ -3903,8 +4335,7 @@ function taskKey(key) {
 }
 
 // With remember off, the view changes for now and the next visit opens the one chosen before.
-function setView(v, remember = true) {
-  ui.view = v;
+function setView(v, remember = true) {  ui.view = v;
   if (remember) { prefs[viewPref()] = v; savePrefs(); }
   render();
   if (v === "graph" && !fitted) fit(false);
@@ -3984,10 +4415,9 @@ async function boot() {
   }
   if (!store) showWelcome();
   poll();
-  refreshBoards();
+  refreshBoards().then(watchOthers);
   setInterval(() => { if (document.visibilityState === "visible") refreshBoards(); }, 5000);
-  addEventListener("focus", refreshBoards);
-}
+  addEventListener("focus", refreshBoards);}
 
 boot();
 })();

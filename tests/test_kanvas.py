@@ -277,6 +277,57 @@ class UndoTests(unittest.TestCase):
         self.assertEqual(json.loads(out), [0, 1, 0, 1, 1, 2])
 
 
+class ChecklistTests(unittest.TestCase):
+    """A checkbox ticked in a rendered description changes the item it shows and nothing else."""
+
+    LINES = [
+        "Steps, with a fake - [ ] inside a sentence",
+        "- [ ] plain",
+        "  - [x] nested",
+        "    continued",
+        "* [X] star, upper case",
+        "+ [ ] plus",
+        "1. [ ] numbered",
+        "2) [x] numbered with a parenthesis",
+        "> - [ ] quoted",
+        "```",
+        "- [ ] not real",
+        "```",
+        "- [ ]",
+        "- not a task [ ]",
+        "- [ ] plain",
+    ]
+    DESC = "\n".join(LINES)
+    # The line of each item in DESC, in the order the boxes are rendered.
+    ITEMS = [(1, "plain", False), (2, "nested continued", True), (4, "star, upper case", True), (5, "plus", False),
+             (6, "numbered", False), (7, "numbered with a parenthesis", True), (8, "quoted", False), (14, "plain", False)]
+
+    def run_js(self, code, desc=DESC):
+        code = "const get = () => null;\n" + code
+        return json.loads(run_html_js(self, code, json.dumps(desc), [("function inlineMd(", "\n// ----")]))
+
+    def test_the_items_are_the_boxes_markdown_renders(self):
+        out = self.run_js("process.stdout.write(JSON.stringify([taskItems(input).map((x) => [x.text, x.checked]),\n"
+                          "  [...markdown(input).matchAll(/<input type=\"checkbox\" disabled( checked)?>/g)].map((m) => !!m[1])]));")
+        self.assertEqual(out, [[[text, checked] for _, text, checked in self.ITEMS], [checked for *_, checked in self.ITEMS]])
+
+    def test_toggling_changes_only_the_line_of_that_item(self):
+        out = self.run_js("const items = taskItems(input);\n"
+                          "process.stdout.write(JSON.stringify(items.map((x, i) => toggleTask(input, x.text,\n"
+                          "  items.slice(0, i).filter((y) => y.text === x.text).length, !x.checked))));")
+        for (line, _, checked), toggled in zip(self.ITEMS, out):
+            lines = list(self.LINES)
+            lines[line] = re.sub(r"\[[ xX]\]", "[ ]" if checked else "[x]", lines[line], count=1)
+            self.assertEqual(toggled, "\n".join(lines))
+        self.assertEqual(len(out), len(self.ITEMS))
+
+    def test_missing_items_and_items_already_in_that_state(self):
+        out = self.run_js("process.stdout.write(JSON.stringify([toggleTask(input, 'gone', 0, true), toggleTask(input, 'plain', 2, true),\n"
+                          "  toggleTask(input, 'plain', 1, false) === input, toggleTask(input, 'star, upper case', 0, true) === input,\n"
+                          "  toggleTask(input.replace(/\\n/g, '\\r\\n'), 'plus', 0, true)]));")
+        self.assertEqual(out, [None, None, True, True, self.DESC.replace("+ [ ] plus", "+ [x] plus").replace("\n", "\r\n")])
+
+
 class WorkflowTests(TempBoard):
     def test_status_lists_what_matters(self):
         _, out, _ = self.run_cli("status")
@@ -1249,7 +1300,7 @@ class ServerTests(TempBoard):
             "  catch (e) { process.stdout.write(`refused: ${e.message}`); }\n"
             "})();"
         )
-        sections = [("function serverStore()", "function fileStore("), ("function mustFind(", "\n// ----")]
+        sections = [("function serverStore()", "function fileStore("), ("function mustFind(", "\n// ----"), ("function inlineMd(", "\n// ----")]
         args = {"port": self.port, "name": self.name, "python": sys.executable, "script": SCRIPT, "dir": self.dir, "agent": list(agent_args)}
         return run_html_js(self, code, json.dumps(args), sections)
 
@@ -1299,6 +1350,15 @@ class ServerTests(TempBoard):
                          "refused: the description of DV-04 changed meanwhile")
         self.assertEqual(self.browser_after_agent(edit, "edit", "DV-04", "--desc", "Theirs, again"), "saved")
         self.assertEqual((self.get("DV-04")["title"], self.get("DV-04")["desc"]), ("Mine", "Theirs, again"))
+
+    def test_a_ticked_box_follows_its_item_through_an_agent_edit(self):
+        self.run_cli("edit", "DV-04", "--desc", "- [ ] a\n- [ ] b")
+        tick = "ops.checkItem('DV-04', 'b', 0, true)"
+        self.assertEqual(self.browser_after_agent(tick, "edit", "DV-04", "--desc", "Steps:\n\n- [ ] new\n- [ ] a\n- [ ] b"), "saved")
+        self.assertEqual(self.get("DV-04")["desc"], "Steps:\n\n- [ ] new\n- [ ] a\n- [x] b")
+        self.assertEqual(self.browser_after_agent(tick, "edit", "DV-04", "--desc", "- [ ] a\n- [ ] c"),
+                         "refused: That checklist item in DV-04 changed meanwhile")
+        self.assertEqual(self.get("DV-04")["desc"], "- [ ] a\n- [ ] c")
 
     def test_browser_writes_are_canonical(self):
         board = json.loads(self.raw())
