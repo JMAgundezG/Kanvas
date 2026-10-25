@@ -45,7 +45,7 @@ STATES = ("proposed", "todo", "doing", "review", "done")
 ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*-\d+$")
 PREFIX_RE = re.compile(r"^[A-Z][A-Z0-9]{0,5}$")
 UNGROUPED_PREFIX = "G"
-TASK_KEYS = ("id", "title", "state", "group", "deps", "yolo", "desc", "notes")
+TASK_KEYS = ("id", "title", "state", "group", "deps", "yolo", "at", "by", "desc", "notes")
 REQUIRED_TASK_KEYS = ("id", "title", "state")
 GROUP_KEYS = ("id", "name")
 NOTE_KEYS = ("at", "by", "edited", "text")
@@ -500,7 +500,7 @@ def add_group(board, name, prefix=None):
     return group, True
 
 
-def add_task(board, title, group=None, desc="", deps=(), state="proposed"):
+def add_task(board, title, group=None, desc="", deps=(), state="proposed", by=None):
     title = " ".join(str(title or "").split())
     if not title:
         raise KanvasError("Task title is empty")
@@ -518,6 +518,8 @@ def add_task(board, title, group=None, desc="", deps=(), state="proposed"):
         "state": state,
         "group": group["id"] if group else None,
         "deps": dep_ids,
+        "at": now_iso() if by else None,
+        "by": by,
         "desc": (desc or "").strip(),
         "notes": [],
     }
@@ -702,6 +704,8 @@ def print_task(board, task):
     print(f"{task['id']}  {task['title']}")
     print(f"State:  {view_state(task, tasks, cover)}")
     print(f"Group:  {group_label(board, task.get('group'))}")
+    if task.get("by"):
+        print(f"By:     {task['by']}" + (f", {task['at']}" if task.get("at") else ""))
     via = cover.get(task["id"].upper())
     if via and task["state"] not in ("review", "done"):
         if via == task["id"]:
@@ -1047,7 +1051,7 @@ def cmd_propose(args):
 
     def op(board):
         group = None if args.group in ("-", "") else find_group(board, args.group)
-        return add_task(board, args.title, group, desc, args.deps or [])
+        return add_task(board, args.title, group, desc, args.deps or [], by=actor(args))
 
     t = mutate(path, op)
     deps = f", depends on {', '.join(t['deps'])}" if t["deps"] else ""
@@ -1111,7 +1115,7 @@ def cmd_batch(args):
             except KanvasError as e:
                 raise KanvasError(f"Task '{item['title']}': {e}")
             desc = item.get("desc", item.get("description", ""))
-            t = add_task(board, item["title"], group, desc, deps)
+            t = add_task(board, item["title"], group, desc, deps, by=actor(args))
             titles[t["title"].lower()] = t["id"]
             new_tasks.append(t)
         return new_groups, new_tasks
@@ -2470,7 +2474,7 @@ def build_parser():
     common.add_argument("-b", "--board", default=argparse.SUPPRESS, metavar="PATH",
                         help=f"board file (default: nearest {BOARD_FILE})")
     common.add_argument("--as", dest="as_name", default=argparse.SUPPRESS, metavar="NAME",
-                        help="name recorded on notes (default: $KANVAS_AGENT or 'agent')")
+                        help="name recorded on notes and proposals (default: $KANVAS_AGENT or 'agent')")
 
     prog = "kanvas" if INSTALLED else os.path.basename(sys.argv[0]) or "kanvas.py"
     parser = argparse.ArgumentParser(

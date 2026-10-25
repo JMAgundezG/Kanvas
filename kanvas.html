@@ -19,7 +19,7 @@
   --edge: #cfd4dc; --edge-open: #6f7a8c; --lane: rgb(15 23 42 / .022); --grid: #dfe2e8;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --cw: 240px; --ch: 96px;
+  --cw: 240px; --ch: 104px;
 }
 [data-theme="dark"] {
   --bg: #0d0f14; --surface: #161920; --surface-2: #1c2028; --border: #282d38; --border-strong: #3a4150;
@@ -131,8 +131,9 @@ main { flex: 1; position: relative; min-height: 0; display: flex; }
 #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 #world.animate { transition: transform .32s cubic-bezier(.2, .7, .2, 1); }
 .lane { position: absolute; left: 0; border-radius: 12px; background: var(--lane); border: 1px solid var(--border); }
-.lane-head { position: absolute; top: 0; left: 0; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 14px; font-size: 13px; color: var(--muted); }
-.lane-head .lane-name { font-weight: 650; color: var(--text); }
+.lane-head { position: absolute; top: 0; left: 0; max-width: 100%; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 14px; font-size: 13px; color: var(--muted); }
+.lane-head > * { flex: none; }
+.lane-head .lane-name { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 650; color: var(--text); }
 .lane-head .lane-prefix { font: 600 11px var(--mono); color: var(--faint); }
 .lane-head .lane-count { font-size: 12px; font-variant-numeric: tabular-nums; }
 .lane-head button { padding: 2px; border-color: transparent; background: transparent; color: var(--faint); }
@@ -241,6 +242,9 @@ button.yolo-go, button.yolo-go:hover { border: 0; color: var(--yolo-ink); font-w
 .kcard.dragging { opacity: .4; }
 .kcard.flash { animation: flash 1.6s ease-out; }
 .kcard .card-title { -webkit-line-clamp: 3; }
+.kcard .cid { flex: none; white-space: nowrap; }
+.kcard .gchip { min-width: 0; }
+.kcard .gchip > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .gchip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--muted); }
 .icon.gtag, .ctx-menu :is(button, a.item) .icon.gtag { color: var(--g, var(--faint)); }
 .gtag svg { width: 13px; height: 13px; fill: color-mix(in srgb, var(--g, var(--faint)) 28%, transparent); }
@@ -253,6 +257,9 @@ button.yolo-go, button.yolo-go:hover { border: 0; color: var(--yolo-ink); font-w
 .p-head .cid { padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); font-size: 12.5px; line-height: 1.3; cursor: copy; }
 .p-head .cid:hover { border-color: var(--border-strong); background: var(--surface-2); }
 .p-head .badge { font-size: 12px; padding: 3px 7px; }
+.p-head > :not(.spacer) { flex: none; }
+.p-head > .gpick { flex: 0 1 auto; min-width: 0; }
+.p-head .gname { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .p-back { display: none; }
 .pick { gap: 3px; padding: 3px 4px 3px 8px; border-radius: 4px; font-size: 12px; line-height: 1.3; }
 .pick .icon svg { width: 13px; height: 13px; }
@@ -387,8 +394,12 @@ dialog.dlg::backdrop { background: rgb(10 12 18 / .38); backdrop-filter: blur(2p
 body.picking header.top, body.picking #panel, body.picking .lane button { pointer-events: none; opacity: .5; }
 body.picking .handle { display: none; }
 body.picking .card { cursor: pointer; }
-.card.pick-on, .kcard.pick-on { box-shadow: 0 0 0 3px var(--accent), var(--shadow-lg); }
-.card.pick-on .cid::before, .kcard.pick-on .cid::before { content: "✓ "; color: var(--accent); }
+.card.pick-on, .kcard.pick-on, .card.multi-on, .kcard.multi-on { box-shadow: 0 0 0 3px var(--accent), var(--shadow-lg); }
+.card.pick-on .cid::before, .kcard.pick-on .cid::before, .card.multi-on .cid::before, .kcard.multi-on .cid::before { content: "✓ "; color: var(--accent); }
+.multi-bar { position: fixed; left: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 30; display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 32px); padding: 7px 7px 7px 14px; border: 1px solid var(--accent); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-lg); font-size: 13px; white-space: nowrap; animation: enter .2s ease-out; }
+.multi-bar .hint { color: var(--faint); }
+.multi-bar .count b { font-variant-numeric: tabular-nums; }
+body.multi .zoombar { display: none; }
 .card.pick-off, .kcard.pick-off { opacity: .3; cursor: not-allowed !important; }
 .dlg-actions { display: flex; flex-direction: row-reverse; gap: 8px; margin-top: 4px; }
 .group-rows { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
@@ -558,7 +569,7 @@ body.picking .card { cursor: pointer; }
   header.top .icon-btn, #hide-done, #inbox, #new-task, #display { min-width: 40px; justify-content: center; }
   header.top .track { padding: 0; }
   header.top .track > button { height: 40px; min-width: 40px; justify-content: center; }
-  :is(.p-head, .now-actions, .now-yolo, .row-end, .section-head, .dlg-actions, .col-head, .pick-bar, .welcome-card, .banner, .group-row, .group-new) button, button.add-line, .dlg button.pick-graph, .dlg .field :is(input, select) { min-height: 40px; }
+  :is(.p-head, .now-actions, .now-yolo, .row-end, .section-head, .dlg-actions, .col-head, .pick-bar, .multi-bar, .welcome-card, .banner, .group-row, .group-new) button, button.add-line, .dlg button.pick-graph, .dlg .field :is(input, select) { min-height: 40px; }
   .col-head { height: 52px; }
   .p-head .icon-btn, .p-back, .group-row .btns button { min-width: 40px; justify-content: center; }
   .zoombar button { height: 40px; min-width: 40px; }
@@ -600,13 +611,16 @@ body.picking .card { cursor: pointer; }
   #display .icon:last-child { display: none; }
   #new-task { padding: 0; }
   #chips { flex: 1 1 0; }
-  #chips > .schip { flex: 1 1 auto; min-width: 30px; padding: 0 4px; gap: 4px; }
+  #chips > .schip { flex: 1 1 auto; min-width: 30px; padding: 0 6px; gap: 4px; }
+  /* The eye in the top row already says finished tasks are hidden. */
+  #chips > .schip.off .dot { display: block; opacity: .5; }
+  #chips > .schip.off .icon { display: none; }
   #group-filter { padding: 0; min-width: 40px; justify-content: center; }
   #group-filter .lbl, #group-filter > .icon:last-child { display: none; }
-  /* The filter row is full, so the finished-tasks toggle joins the view buttons. To leave the board's name
-     some room, the view switch shows only the view it switches to. */
+  /* The board's name keeps the top row, with the finished-tasks toggle; the view switch moves into the
+     Display menu and redo goes, so the state counts have room. */
+  .logo, .seg, #redo { display: none; }
   #hide-done { order: 3; }
-  .seg > button.on { display: none; }
   #inbox { padding: 0 4px; gap: 2px; }
   .search { flex: 0 0 40px; min-width: 0; }
   .search input { padding: 0 8px 0 30px; }
@@ -620,7 +634,6 @@ body.picking .card { cursor: pointer; }
   .p-head { gap: 4px; padding: 6px 8px; }
   .p-head .p-back { display: inline-flex; margin-right: 2px; }
   .p-head .p-close { display: none; }
-  .p-head .gpick { min-width: 0; overflow: hidden; }
   .p-body { padding: 14px 14px 28px; }
 
   #kanban { gap: 10px; padding: 10px; scroll-snap-type: x mandatory; scroll-padding: 10px; }
@@ -634,6 +647,9 @@ body.picking .card { cursor: pointer; }
   .ctx-menu, .ctx-menu.dpop { max-width: calc(100vw - 8px); max-height: calc(var(--vv-height, 100dvh) - 8px); overflow-y: auto; }
   .pick-bar { top: 8px; left: 8px; right: 8px; translate: none; flex-wrap: wrap; white-space: normal; }
   .pick-bar .hint { display: none; }
+  .multi-bar { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); max-width: none; flex-wrap: wrap; padding: 6px 6px 6px 12px; }
+  .multi-bar .hint { display: none; }
+  .multi-bar .count { flex: 1; }
 }
 </style>
 </head>
@@ -726,7 +742,7 @@ const ID_RE = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 const PREFIX_RE = /^[A-Z][A-Z0-9]{0,5}$/;
 const UNGROUPED = "G";
 const GROUP_COLORS = ["#6366f1", "#0ea5e9", "#14b8a6", "#f59e0b", "#ec4899", "#84cc16", "#a855f7", "#f43f5e", "#06b6d4", "#78716c"];
-const CW = 240, CH = 96, GAP_Y = 14, LANE_HEAD = 38, LANE_PAD = 14, LANE_GAP = 16;
+const CW = 240, CH = 104, GAP_Y = 14, LANE_HEAD = 38, LANE_PAD = 14, LANE_GAP = 16;
 const ARROW = 11; // markerWidth of the edge markers: edges end this far from the card so the tip touches it
 const SLOT = 16, SLOT_GAP = 6; // across-flow room a long arrow takes in each depth it passes, and its spacing
 const PORT_GAP = 12, PORT_MARGIN = 16; // spacing of arrow ends along a card side, and the corners they keep clear of
@@ -897,7 +913,7 @@ function canonical(b) {
   const out = { kanvas: 1, title: b.title || "" };
   out.groups = b.groups.map((g) => ordered(g, ["id", "name"], ["id", "name"]));
   out.tasks = b.tasks.map((t) => {
-    const o = ordered(t, ["id", "title", "state", "group", "deps", "yolo", "desc", "notes"], ["id", "title", "state"]);
+    const o = ordered(t, ["id", "title", "state", "group", "deps", "yolo", "at", "by", "desc", "notes"], ["id", "title", "state"]);
     if (o.notes) o.notes = o.notes.map((n) => ordered(n, ["at", "by", "edited", "text"], ["at", "by", "text"]));
     return o;
   });
@@ -1881,7 +1897,7 @@ function announce(moves, withdrawn, where = null, b = board) {
   let events = [
     ...withdrawn.map((t) => ({ id: t.id, title: t.title, verb: "withdrew", state: null, by: null })),
     ...shown.map(([t, old]) => {
-      const last = t.notes[t.notes.length - 1], by = last && t.notes.length > (old ? old.notes.length : 0) ? last.by : null;
+      const last = t.notes[t.notes.length - 1], by = last && t.notes.length > (old ? old.notes.length : 0) ? last.by : !old && t.by !== "human" ? t.by || null : null;
       const verb = old && revised(old, t) ? "revised" : !old && t.state === "proposed" ? "proposed" : ACTIVITY[t.state];
       return { id: t.id, title: t.title, verb, state: vstateIn(ix, t, cover), by };
     }),
@@ -2048,7 +2064,7 @@ const ops = {
   editNote: (id, n, rank, text, edited = nowIso()) => (b) => { const t = mustFind(b, id), i = noteIndex(t, n, rank); t.notes[i] = { ...t.notes[i], text, edited }; },
   removeNote: (id, n, rank) => (b) => { const t = mustFind(b, id); t.notes.splice(noteIndex(t, n, rank), 1); },
   addTask: (f, out) => (b) => {
-    const t = { id: nextId(b, f.group || UNGROUPED), title: f.title, state: "todo", group: f.group || null, deps: [], desc: f.desc || "", notes: [] };
+    const t = { id: nextId(b, f.group || UNGROUPED), title: f.title, state: "todo", group: f.group || null, deps: [], at: nowIso(), by: "human", desc: f.desc || "", notes: [] };
     for (const ref of f.deps || []) t.deps.push(mustFind(b, ref).id);
     b.tasks.push(t);
     for (const ref of f.blocks || []) {
@@ -2142,6 +2158,7 @@ function render() {
   if (ui.view === "graph") renderGraph();
   else renderKanban();
   if (picking) applyPick();
+  applyMulti();
 }
 
 function renderHeader() {
@@ -2187,7 +2204,7 @@ function renderHeader() {
         else ui.states = new Set([s]);
         render();
       },
-    }, hidden ? icon("eye-off") : h("span", { class: "dot" }), h("span", { class: "lbl" }, LABEL[s]), h("b", {}, counts[s]));
+    }, h("span", { class: "dot" }), hidden ? icon("eye-off") : null, h("span", { class: "lbl" }, LABEL[s]), h("b", {}, counts[s]));
   }));
 
   for (const id of ui.groups) if (id && !board.groups.some((g) => g.id === id)) ui.groups.delete(id);
@@ -2270,6 +2287,8 @@ function cardFoot(t) {
   } else if (last && (vs === "doing" || vs === "review")) {
     const by = last.by || "?";
     left = h("span", { class: "grow who", title: last.text }, vs === "doing" ? h("i", { class: "live" }) : null, agentMark(by), `${by} · ${ago(last.at)}`);
+  } else if (vs === "proposed" && t.by) {
+    left = h("span", { class: "grow who", title: `Proposed by ${t.by}` }, agentMark(t.by), t.at ? `${t.by} · ${ago(t.at)}` : t.by);
   } else if (t.deps.length) {
     left = h("span", { class: "grow" }, icon("link"), ` ${t.deps.length - unmet(t).length}/${t.deps.length}`);
   } else {
@@ -2290,7 +2309,7 @@ function yoloTag(t) {
 
 function fillCard(el, t) {
   const vs = vstate(t);
-  el.className = `card s-${vs}${same(ui.selected, t.id) ? " sel" : ""}${isYoloTarget(t) ? " yolo" : ""}${["enter", "flash", "moving", "zap"].filter((c) => el.classList.contains(c)).map((c) => ` ${c}`).join("")}`;
+  el.className = `card s-${vs}${same(ui.selected, t.id) ? " sel" : ""}${multi.has(key(t.id)) ? " multi-on" : ""}${isYoloTarget(t) ? " yolo" : ""}${["enter", "flash", "moving", "zap"].filter((c) => el.classList.contains(c)).map((c) => ` ${c}`).join("")}`;
   el.dataset.id = t.id;
   el.replaceChildren(...compact(
     h("div", { class: "card-head" }, h("span", { class: "cid" }, t.id), h("span", { class: "head-end" }, yoloTag(t), h("span", { class: "badge" }, LABEL[vs]))),
@@ -2324,7 +2343,7 @@ function renderGraph() {
   },
   h("div", { class: "lane-head" },
     groupTag(l.color),
-    h("span", { class: "lane-name" }, l.name),
+    h("span", { class: "lane-name", title: l.name }, l.name),
     l.id ? h("span", { class: "lane-prefix" }, l.id) : null,
     h("span", { class: "lane-count", title: "done / total" }, `${l.done}/${l.total}`),
     l.total ? h("span", { class: "lane-bar", title: `${l.done} of ${l.total} done` }, h("i", { style: `width:${(100 * l.done) / l.total}%` })) : null,
@@ -2407,8 +2426,8 @@ function lineage(id) {
 function applyFocus() {
   const world = $("#world");
   const link = ui.link;
-  // While picking, every card stays as bright as its pick state, so the open task lights up nothing.
-  const focus = link || picking ? null : ui.hover || (ui.selected && cardEls.has(key(ui.selected)) ? ui.selected : null);
+  // While picking or selecting several, every card stays as bright as its pick state, so hovering lights up nothing.
+  const focus = link || picking || multi.size ? null : ui.hover || (ui.selected && cardEls.has(key(ui.selected)) ? ui.selected : null);
   world.classList.toggle("focusing", !!(link || focus));
   if (!link && !focus) {
     for (const el of cardEls.values()) el.classList.remove("related");
@@ -2819,7 +2838,8 @@ function setupGraphInput() {
       }
     } else if (!d.moved && e.type === "pointerup") {
       if (picking) { if (d.card) pickToggle(d.card.dataset.id); }      else if (d.edge && !d.card) showEdgeMenu(d.edge, e.clientX, e.clientY);
-      else select(d.card ? d.card.dataset.id : null);
+      else if (d.card && multiClick(e)) toggleMulti(d.card.dataset.id);
+      else if (d.card || !multi.size) select(d.card ? d.card.dataset.id : null);
     }
   };
   const up = (e) => {
@@ -2900,10 +2920,10 @@ function renderKanban() {
 function kanbanCard(t) {
   const vs = vstate(t), g = groupOf(t);
   const el = h("div", {
-    class: `kcard s-${vs}${same(ui.selected, t.id) ? " sel" : ""}`, "data-id": t.id, draggable: store.readOnly ? null : "true",
-    onclick: () => (picking ? pickToggle(t.id) : select(t.id)),
+    class: `kcard s-${vs}${same(ui.selected, t.id) ? " sel" : ""}${multi.has(key(t.id)) ? " multi-on" : ""}`, "data-id": t.id, draggable: store.readOnly ? null : "true",
+    onclick: (e) => (picking ? pickToggle(t.id) : multiClick(e) ? toggleMulti(t.id) : select(t.id)),
   },
-  h("div", { class: "card-head" }, h("span", { class: "cid" }, t.id), h("span", { class: "head-end" }, yoloTag(t), g ? h("span", { class: "gchip" }, groupTag(groupColor(g)), g.name) : null)),
+  h("div", { class: "card-head" }, h("span", { class: "cid" }, t.id), h("span", { class: "head-end" }, yoloTag(t), g ? h("span", { class: "gchip", title: g.name }, groupTag(groupColor(g)), h("span", {}, g.name)) : null)),
   h("div", { class: "card-title" }, t.title),
   cardFoot(t));
   el.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/kanvas-id", t.id); e.dataTransfer.effectAllowed = "move"; el.classList.add("dragging"); });
@@ -2916,6 +2936,9 @@ function kanbanCard(t) {
 // On phones the panel covers the board, so opening it adds a history entry and the phone's back gesture closes it.
 function select(id) {
   const t = id ? get(id) : null, was = ui.selected;
+  // The graph keeps focus where it was, and the panel does not refresh while one of its text fields has it.
+  const panel = $("#panel"), field = document.activeElement;
+  if ((t ? t.id : null) !== was && field !== panel && panel.contains(field)) field.blur();
   ui.selected = t ? t.id : null;
   ui.editingDesc = false;
   drafts.desc = drafts.descBase = null;
@@ -3056,8 +3079,8 @@ function fillPanel(panel, t) {
     h("button", { class: "cid", title: "Copy ID", onclick: () => copy(t.id) }, t.id),
     ro ? h("span", { class: `badge s-${vs}` }, LABEL[vs])
       : h("button", { class: `pick badge s-${vs}`, title: "Change the state", "aria-haspopup": "menu", "aria-expanded": "false", onclick: below(() => stateMenu(t)) }, LABEL[vs], icon("chevron")),
-    ro ? (g ? h("span", { class: "gpick pick" }, groupTag(gColor), g.name) : null)
-      : h("button", { class: "gpick pick", title: "Change the group", "aria-haspopup": "menu", "aria-expanded": "false", onclick: below(() => groupMenu(t)) }, groupTag(gColor), g ? g.name : "No group", icon("chevron")),
+    ro ? (g ? h("span", { class: "gpick pick", title: g.name }, groupTag(gColor), h("span", { class: "gname" }, g.name)) : null)
+      : h("button", { class: "gpick pick", title: g ? `${g.name}. Change the group` : "Change the group", "aria-haspopup": "menu", "aria-expanded": "false", onclick: below(() => groupMenu(t)) }, groupTag(gColor), h("span", { class: "gname" }, g ? g.name : "No group"), icon("chevron")),
     h("span", { class: "spacer" }),
     h("button", { class: "ghost icon-btn", title: "More", "aria-label": "More actions", "aria-haspopup": "menu", "aria-expanded": "false", onclick: below(() => panelMenu(t), true) }, icon("more")),
     h("button", { class: "ghost icon-btn p-close", title: "Close (Esc)", "aria-label": "Close", onclick: () => select(null) }, icon("x")));
@@ -3157,7 +3180,9 @@ function autosize(ta) {
 function nowCard(t, vs, ro, note) {
   const ref = (id) => h("a", { class: "tref", href: `#${id}`, "data-ref": id }, id);
   const list = (ids) => ids.map((id, i) => [i ? (i === ids.length - 1 ? " and " : ", ") : "", ref(id)]);
-  const who = note ? h("span", { class: "now-who", title: noteTimes(note) }, agentMark(note.by || "?"), `${note.by || "?"} · ${ago(note.at)}${note.edited ? ` · edited ${ago(note.edited)}` : ""}`) : null;
+  const who = note ? h("span", { class: "now-who", title: noteTimes(note) }, agentMark(note.by || "?"), `${note.by || "?"} · ${ago(note.at)}${note.edited ? ` · edited ${ago(note.edited)}` : ""}`)
+    : vs === "proposed" && t.by ? h("span", { class: "now-who", title: t.at ? new Date(t.at).toLocaleString() : null }, agentMark(t.by), t.at ? `${t.by} · ${ago(t.at)}` : t.by)
+    : null;
   const editing = note && !ro && isEditingNote(t, note);
   const waits = unmet(t);
   const [mark, headline, body] = {
@@ -3282,8 +3307,26 @@ async function sendBack(t) {
   if (data) commit(ops.state(t.id, seenOf(t), "todo", `Sent back: ${data.get("text").trim()}`));
 }
 
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 function approveMany(tasks) {
-  commit(ops.approve(tasks.map(seenOf))).then((ok) => ok && toast(`Approved ${tasks.length} proposal${tasks.length > 1 ? "s" : ""}`));
+  return commit(ops.approve(tasks.map(seenOf))).then((ok) => { if (ok) toast(`Approved ${plural(tasks.length, "proposal")}`); return ok; });
+}
+
+function doneMany(tasks) {
+  return commit((b) => { for (const t of tasks) ops.state(t.id, seenOf(t), "done")(b); })
+    .then((ok) => { if (ok) toast(`Marked ${plural(tasks.length, "task")} done. Ctrl+Z undoes it.`); return ok; });
+}
+
+async function removeMany(tasks) {
+  const ids = tasks.map((t) => t.id);
+  const data = await modal(`Delete ${plural(tasks.length, "task")}?`,
+    h("p", {}, `${ids.join(", ")} will be removed, along with the dependencies on them. Ctrl+Z brings them back.`), { ok: "Delete", danger: true });
+  if (!data) return false;
+  if (ids.some((id) => same(ui.selected, id))) ui.selected = null;
+  const ok = await commit((b) => { for (const id of ids) ops.remove(id)(b); });
+  if (ok) toast(`Deleted ${plural(tasks.length, "task")}. Ctrl+Z brings them back.`);
+  return ok;
 }
 
 // Dialogs ---------------------------------------------------------------------
@@ -3462,6 +3505,47 @@ function pickOnGraph(picker, dlg) {
   if (view !== "graph") setView("graph", false); else { applyFocus(); applyPick(); }
 }
 
+// Tasks selected together for one action. While any are selected, clicks and taps on cards add or remove them.
+const multi = new Set();
+let multiBar = null;
+const multiClick = (e) => !store.readOnly && !picking && (multi.size > 0 || e.ctrlKey || e.metaKey || e.shiftKey);
+
+function toggleMulti(id) {
+  if (store.readOnly || picking) return;
+  const k = key(id);
+  if (!multi.size && ui.selected && !same(ui.selected, id)) multi.add(key(ui.selected));
+  if (multi.has(k)) multi.delete(k); else multi.add(k);
+  if (ui.selected) select(null); else applyMulti();
+}
+
+function clearMulti() {
+  multi.clear();
+  applyMulti();
+}
+
+function applyMulti() {
+  for (const k of [...multi]) if (!IX.has(k)) multi.delete(k);
+  for (const el of document.querySelectorAll(".card[data-id], .kcard[data-id]")) el.classList.toggle("multi-on", multi.has(key(el.dataset.id)));
+  if (document.body.classList.contains("multi") !== multi.size > 0) {
+    document.body.classList.toggle("multi", multi.size > 0);
+    applyFocus();
+  }
+  if (!multi.size) { multiBar?.remove(); multiBar = null; return; }
+  if (!multiBar) document.body.append(multiBar = h("div", { class: "multi-bar", role: "toolbar", "aria-label": "Selected tasks" }));
+  const tasks = board.tasks.filter((t) => multi.has(key(t.id)));
+  const proposals = tasks.filter((t) => vstate(t) === "proposed"), reviews = tasks.filter((t) => t.state === "review");
+  // An action leaves the tasks it did not apply to selected, for the next one.
+  const run = (fn, done) => () => fn(done).then((ok) => { if (ok) { for (const t of done) multi.delete(key(t.id)); applyMulti(); } });
+  multiBar.replaceChildren(...compact(
+    h("span", { class: "count" }, h("b", {}, tasks.length), " selected"),
+    h("span", { class: "hint" }, coarse.matches ? "Tap cards to add or remove" : "Click cards to add or remove"),
+    proposals.length ? h("button", { class: "primary", onclick: run(approveMany, proposals) }, icon("check"), `Approve ${proposals.length}`) : null,
+    reviews.length ? h("button", { class: "primary to s-done", onclick: run(doneMany, reviews) }, icon("check"), `Mark ${reviews.length} done`) : null,
+    h("button", { class: "danger", onclick: run(removeMany, tasks) }, icon("trash"), `Delete ${tasks.length}`),
+    h("button", { class: "ghost icon-btn", title: "Clear the selection (Esc)", "aria-label": "Clear the selection", onclick: clearMulti }, icon("x")),
+  ));
+}
+
 function pickToggle(id) {
   const why = picking.picker.toggle(id);
   if (why) toast(`${id}: ${why}`, "error");
@@ -3604,7 +3688,7 @@ function groupsDialog() {
 }
 
 function helpDialog() {
-  const keys = [["N", "New task"], ["/", "Filter tasks"], ["G / B", "Graph or board view"], ["L", "Graph left to right or top to bottom"], ["M", "Automatic layout, or order cards and groups yourself by dragging them"], ["H", "Hide or show finished tasks"], ["F", "Fit the graph to the screen"], ["+ / -", "Zoom"], ["[ / ]", "Compress or extend the graph"], ["← / ↑ / ↓ / →", "Select the next card in that direction"], ["Shift+← / Shift+→", "Previous or next open board"], ["Enter", "Move into the selected task's panel, where Tab goes round its controls"], ["A", "Approve the selected proposal"], ["S", "Start the selected task"], ["D", "Mark the selected task done"], ["P", "Pause the selected task"], ["E", "Rename the selected task"], ["Del / Backspace", "Delete the selected task, or reject it if it is a proposal"], ["Esc", "Leave the panel, close it, or clear the filter"], ["Right-click", "Actions for a card, a dependency or empty space"], ["Ctrl+Z", "Undo your last change"], ["Ctrl+Shift+Z / Ctrl+Y", "Redo"], ["Ctrl+Enter", "Save the text you are editing"]];
+  const keys = [["N", "New task"], ["/", "Filter tasks"], ["G / B", "Graph or board view"], ["L", "Graph left to right or top to bottom"], ["M", "Automatic layout, or order cards and groups yourself by dragging them"], ["H", "Hide or show finished tasks"], ["F", "Fit the graph to the screen"], ["+ / -", "Zoom"], ["[ / ]", "Compress or extend the graph"], ["← / ↑ / ↓ / →", "Select the next card in that direction"], ["Shift+← / Shift+→", "Previous or next open board"], ["Enter", "Move into the selected task's panel, where Tab goes round its controls"], ["A", "Approve the selected proposal"], ["S", "Start the selected task"], ["D", "Mark the selected task done"], ["P", "Pause the selected task"], ["E", "Rename the selected task"], ["Del / Backspace", "Delete the selected task, or reject it if it is a proposal"], ["Esc", "Leave the panel, close it, or clear the filter"], ["Right-click", "Actions for a card, a dependency or empty space"], ["Ctrl+click", "Select several cards, then approve, finish or delete them together with the bar, A, D or Del"], ["Ctrl+Z", "Undo your last change"], ["Ctrl+Shift+Z / Ctrl+Y", "Redo"], ["Ctrl+Enter", "Save the text you are editing"]];
   modal("Keyboard shortcuts", [
     h("div", { class: "keys" }, keys.map(([k, v]) => [h("span", {}, k.split(" / ").map((x, i) => [i ? " / " : "", h("kbd", {}, x)])), h("span", {}, v)])),
     h("p", {}, "In the graph, drag a dot on a card's edge onto another card to add a dependency, and click an arrow to remove it. Scroll to pan, Ctrl+scroll to zoom."),
@@ -3831,6 +3915,8 @@ function displayMenu() {
       h("div", { class: "d-label" }, h("span", {}, label), keys.map((k) => h("kbd", {}, k))), control, note ? h("div", { class: "d-note" }, note) : null);
     const graph = ui.view === "graph", manual = prefs.arrange === "manual";
     node.replaceChildren(...compact(
+      // Phones have no room for the view switch in the header.
+      phone.matches && row("View", ["G", "B"], seg("View", [["graph", "Graph", "graph"], ["board", "Board", "columns"]], ui.view, (v) => { setView(v); fill(); })),
       graph && h("div", { class: "d-head" }, "Graph"),
       graph && row("Direction", ["L"], seg("Direction", [["horizontal", "Left to right", "right"], ["vertical", "Top to bottom", "down"]], prefs.orient === "vertical" ? "vertical" : "horizontal", toggleOrient)),
       // Phones have no room for the spacing slider in the zoom bar.
@@ -3876,8 +3962,10 @@ function cardMenu(t) {
   const open = { label: `Open ${t.id}`, icon: "open", run: () => select(t.id) };
   const copyId = { label: "Copy ID", icon: "copy", run: () => copy(t.id) };
   if (store.readOnly) return [open, copyId];
+  const picked = multi.has(key(t.id));
   return [
     open,
+    { label: picked ? "Unselect" : multi.size ? "Add to the selection" : "Select", icon: "check", run: () => toggleMulti(t.id) },
     "sep",
     ...stateMoves(t).filter((m) => !m.danger).map((m) => ({ ...m, label: m.asks ? `${m.label}…` : m.label })),
     yoloAction(t),
@@ -4297,7 +4385,7 @@ function setupChrome() {
       h: toggleDone, l: toggleOrient, m: () => ui.view === "graph" && toggleArrange(), f: () => fit(true), "?": helpDialog,
       "[": () => setLevelGap(prefs.levelGap - 30), "]": () => setLevelGap(prefs.levelGap + 30),
       "+": () => zoomAt(1.2, r.width / 2, r.height / 2), "=": () => zoomAt(1.2, r.width / 2, r.height / 2), "-": () => zoomAt(1 / 1.2, r.width / 2, r.height / 2),
-      Escape: () => { if (ui.selected) select(null); else if (ui.states.size || ui.groups.size || ui.search) { if (ui.groups.size) fitted = false; ui.states.clear(); ui.groups.clear(); ui.search = ""; search.value = ""; render(); } },
+      Escape: () => { if (ui.selected) select(null); else if (multi.size) clearMulti(); else if (ui.states.size || ui.groups.size || ui.search) { if (ui.groups.size) fitted = false; ui.states.clear(); ui.groups.clear(); ui.search = ""; search.value = ""; render(); } },
     };
     const fn = actions[e.key] || actions[e.key.toLowerCase()];
     if (fn) { e.preventDefault(); fn(); }
@@ -4315,6 +4403,14 @@ function setupChrome() {
 
 // Keys that act on the selected task, through the same moves as its menu.
 function taskKey(key) {
+  if (multi.size && !store.readOnly) {
+    const k = key === "Delete" || key === "Backspace" ? "Delete" : key.toLowerCase();
+    const label = { a: "Approve", d: "Mark", Delete: "Delete" }[k];
+    const btn = label && multiBar && [...multiBar.querySelectorAll("button")].find((b) => b.textContent.startsWith(label));
+    if (btn) btn.click();
+    else if (label) toast(`${label === "Mark" ? "Mark done" : label} doesn't apply to the selected tasks`);
+    return !!label;
+  }
   const t = ui.selected && get(ui.selected);
   if (!t || store.readOnly) return false;
   if (key === "Delete" || key === "Backspace") { removeTask(t); return true; }

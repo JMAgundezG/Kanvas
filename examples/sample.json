@@ -109,6 +109,8 @@
       "state": "proposed",
       "group": "BE",
       "deps": ["BE-02"],
+      "at": "2026-10-19T11:06:00Z",
+      "by": "claude",
       "desc": "Retry Open-Meteo calls up to 3 times with exponential backoff, then serve the last cached forecast marked as stale."
     },
     {
@@ -162,6 +164,8 @@
       "state": "proposed",
       "group": "FE",
       "deps": ["FE-02"],
+      "at": "2026-10-19T14:20:00Z",
+      "by": "codex",
       "desc": "Show the last forecast with a banner when the network is down."
     },
     {

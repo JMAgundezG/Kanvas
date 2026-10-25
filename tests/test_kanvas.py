@@ -367,6 +367,17 @@ class WorkflowTests(TempBoard):
         self.run_cli("note", "DV-02", "plain")
         self.assertEqual([n["by"] for n in self.get("DV-02")["notes"]], ["codex", "gemini", "agent"])
 
+    def test_proposals_are_signed_like_notes(self):
+        self.run_cli("propose", "Development", "Signed", env={"KANVAS_AGENT": "codex"})
+        self.run_cli("batch", "--as", "gemini", stdin=json.dumps({"tasks": [{"title": "From a batch"}]}).encode())
+        signed = {t["title"]: t for t in self.board()["tasks"] if t["title"] in ("Signed", "From a batch")}
+        self.assertEqual(signed["Signed"]["by"], "codex")
+        self.assertEqual(signed["From a batch"]["by"], "gemini")
+        self.assertRegex(signed["Signed"]["at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.run_cli("edit", signed["Signed"]["id"], "--title", "Signed and revised", "--as", "claude")
+        self.assertEqual(self.get(signed["Signed"]["id"])["by"], "codex")
+        self.assertIn("By:     codex", self.run_cli("show", signed["Signed"]["id"])[1])
+
     def test_utf8_from_stdin(self):
         text = "Café — naïve ✓ 日本語\nsecond line: ü"
         self.run_cli("note", "DV-02", "--stdin", stdin=text.encode("utf-8"))

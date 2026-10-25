@@ -95,7 +95,7 @@ Give each task a `desc` that says what finished means, since the human reviews a
 | `undepend ID ON [ON ...]` | Remove dependencies from a proposal |
 | `check` | Validate the board |
 
-Notes record your name, so the human can tell who did what. Sign with the name of your tool: `claude-code`, `cursor`, `codex`, `gemini`, `copilot`, `opencode`, or another short name for it. Pass `--as cursor` to each command, or set `KANVAS_AGENT=cursor` once if your shell keeps environment variables between commands. When several agents of one tool share the board, add what each one does, as in `cursor-docs`. Unsigned notes show as `agent`.
+Notes and proposals record your name, so the human can tell who did what. Sign with the name of your tool: `claude-code`, `cursor`, `codex`, `gemini`, `copilot`, `opencode`, or another short name for it. Pass `--as cursor` to each command, or set `KANVAS_AGENT=cursor` once if your shell keeps environment variables between commands. When several agents of one tool share the board, add what each one does, as in `cursor-docs`. Unsigned notes show as `agent`.
 
 ## Long or non-ASCII text
 
