@@ -345,6 +345,8 @@ class BrowserSmokeTests(unittest.TestCase):
         self.page.send("Fetch.disable")
         self.page.js(ADD_NOTE)
         self.wait_for("the note in kanvas.json once saving works", lambda: self.notes("BE-03") == before + [note])
+        # Stopping the server before its answer arrives would leave the page unsure the note was saved, so it keeps it.
+        self.until("the saved note on the page", f"document.querySelector('#panel .p-body').innerText.includes({json.dumps(note)}) && {NOTE_BOX}.value === ''")
 
         stop(self.server)
         self.until("the lost connection banner", "!document.querySelector('#lost').hidden")

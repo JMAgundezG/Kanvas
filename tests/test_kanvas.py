@@ -1463,7 +1463,7 @@ class YoloTests(TempBoard):
         for tid in ("DV-04", "DV-06"):
             self.assertIn("a human must approve it", self.fails("start", tid))
         self.assertEqual(self.raw(), before)
-        _, out, _ = self.run_cli("status")
+        out = self.run_cli("status")[1].replace("\r\n", "\n")
         self.assertIn("Proposed, awaiting human approval (2)\n  DV-04  Task DV-04\n  DV-06  Delete the production database\n", out)
         self.assertIn("DV-02  Task DV-02  (waiting on DV-04, DV-06)  (YOLO)", out)
         self.assertIn("YOLO:   joins the chain of DV-03 once a human approves it", self.run_cli("show", "DV-06")[1])
