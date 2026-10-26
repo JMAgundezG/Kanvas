@@ -2432,6 +2432,25 @@ class ServerTests(TempBoard):
         self.assertEqual(status, 403)
         self.assertIs(json.loads(self.phone_request(port, "GET", f"/{self.name}/api/phone", "box")[1])["manage"], False)
 
+    def test_a_refusal_reads_the_body_first(self):
+        """An answer sent with the request body unread lets Windows reset the connection and lose the answer."""
+        with socket.create_connection(("127.0.0.1", self.port), timeout=5) as s:
+            s.sendall(f"POST /{self.name}/api/phone HTTP/1.1\r\nHost: 127.0.0.1:{self.port}\r\nX-Forwarded-For: 100.64.0.9\r\nContent-Type: application/json\r\n"
+                      "Content-Length: 2\r\n\r\n".encode("ascii"))
+            s.settimeout(0.3)
+            with self.assertRaises(socket.timeout):
+                s.recv(1)
+            s.settimeout(5)
+            s.sendall(b"{}")
+            reply = b""
+            while True:
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                reply += chunk
+        self.assertTrue(reply.startswith(b"HTTP/1.0 403"), reply[:40])
+        self.assertIn(b"Only the computer running Kanvas can open it to phones", reply)
+
     def test_phones_that_come_through_tailscale_serve_cannot_open_boards_or_change_phone_access(self):
         """`tailscale serve` passes phones on to this computer's own address, by its Tailscale name and with X-Forwarded headers."""
         self.open_to_phone()
