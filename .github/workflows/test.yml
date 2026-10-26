@@ -17,7 +17,12 @@ jobs:
         exclude:
           - os: macos-latest
             python: "3.8"
+          # Python 3.8 has no builds for the newest Ubuntu.
+          - os: ubuntu-latest
+            python: "3.8"
         include:
+          - os: ubuntu-24.04
+            python: "3.8"
           - os: macos-latest
             python: "3.10"
     steps:
@@ -41,7 +46,12 @@ jobs:
         exclude:
           - os: macos-latest
             python: "3.8"
+          # Python 3.8 has no builds for the newest Ubuntu.
+          - os: ubuntu-latest
+            python: "3.8"
         include:
+          - os: ubuntu-24.04
+            python: "3.8"
           - os: macos-latest
             python: "3.10"
     defaults:
