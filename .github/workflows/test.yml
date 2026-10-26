@@ -34,6 +34,9 @@ jobs:
         with:
           node-version: 22
       - run: python -m unittest discover -s tests -v
+        env:
+          # The browser tests skip where Chrome is missing. GitHub's Linux runners have it, so there they must run.
+          KANVAS_TEST_CHROME: ${{ runner.os == 'Linux' && 'google-chrome' || '' }}
 
   package:
     name: installed command / ${{ matrix.os }} / Python ${{ matrix.python }}

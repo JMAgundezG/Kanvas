@@ -13,6 +13,7 @@ Python 3.8+, standard library only. Run `python kanvas.py -h` for commands.
 import argparse
 import errno
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -51,8 +52,10 @@ GROUP_KEYS = ("id", "name")
 NOTE_KEYS = ("at", "by", "edited", "text")
 REQUIRED_NOTE_KEYS = ("at", "by", "text")
 
-LOCK_TIMEOUT = 5.0
-STALE_LOCK_AGE = 10.0
+# A lock older than STALE_LOCK_AGE was left by a crashed process. Writers wait longer than that, so they break it
+# and go on; a lock is only held while the board is read and written.
+LOCK_TIMEOUT = 10.0
+STALE_LOCK_AGE = 5.0
 MAX_UPLOAD = 20 * 1024 * 1024
 
 
@@ -383,8 +386,10 @@ def yolo_cover(board):
     """Map task ID (upper case) -> ID of the YOLO task covering it.
 
     A human sets `yolo` on a task; until that task goes to review, it covers
-    itself and everything it transitively depends on. Covered proposals count
-    as approved, and finishing a covered task marks it done without review.
+    itself and everything it transitively depends on, and finishing a covered
+    task marks it done without review. Setting YOLO approves the chain's
+    proposals (yoloOn in kanvas.html); a proposal linked into the chain later
+    stays a proposal until a human approves it.
     Only the last YOLO task of a chain goes to review: a YOLO task that another
     one depends on is covered by it like the rest of the chain.
     """
@@ -416,14 +421,9 @@ def _upstream(tasks, task):
     return seen
 
 
-def view_state(task, tasks, cover=None):
-    """Stored state, with 'blocked' derived for to-do tasks waiting on deps.
-
-    Pass `cover` (from yolo_cover) to treat proposals under YOLO as approved.
-    """
+def view_state(task, tasks):
+    """Stored state, with 'blocked' derived for to-do tasks waiting on deps."""
     state = task.get("state", "todo")
-    if state == "proposed" and cover and task["id"].upper() in cover:
-        state = "todo"
     if state == "todo" and unmet_deps(task, tasks):
         return "blocked"
     return state
@@ -452,7 +452,7 @@ def next_id(board, prefix):
     highest = 0
     for t in board["tasks"]:
         head, _, num = t["id"].rpartition("-")
-        if head.upper() == prefix and num.isdigit():
+        if head.upper() == prefix and num.isascii() and num.isdigit():
             highest = max(highest, int(num))
     return f"{prefix}-{highest + 1:02d}"
 
@@ -532,6 +532,47 @@ def add_note(task, text, by):
     if not text:
         raise KanvasError("Note text is empty")
     task.setdefault("notes", []).append({"at": now_iso(), "by": by, "text": text})
+
+
+QUESTION = "Question:"
+
+
+def open_question(task):
+    """The note in which the agent working on `task` asked the human something in its chat, while it waits.
+
+    The next note, from anyone, ends the wait, and so does the task leaving doing (mirrored in kanvas.html).
+    """
+    notes = task.get("notes") or []
+    last = notes[-1] if task.get("state") == "doing" and notes else None
+    if last and last.get("by") != "human" and str(last.get("text", "")).startswith(QUESTION):
+        return last
+    return None
+
+
+def question_text(note):
+    return str(note.get("text", ""))[len(QUESTION):].strip()
+
+
+CHANGES = "Changes requested:"
+
+
+def change_request(task):
+    """The note in which the human asked for changes to a proposal, until an agent answers it.
+
+    A note from an agent after it answers it, and so does the task leaving proposed (mirrored in kanvas.html).
+    """
+    if task.get("state") != "proposed":
+        return None
+    for note in reversed(task.get("notes") or []):
+        if note.get("by") != "human":
+            return None
+        if str(note.get("text", "")).startswith(CHANGES):
+            return note
+    return None
+
+
+def change_text(note):
+    return str(note.get("text", ""))[len(CHANGES):].strip()
 
 
 def find_cycles(board):
@@ -688,13 +729,28 @@ def id_width(tasks):
 
 
 def yolo_mark(task, cover):
-    return "  (YOLO)" if cover and task["state"] not in ("review", "done") and task["id"].upper() in cover else ""
+    return "  (YOLO)" if cover and task["state"] in ("todo", "doing") and task["id"].upper() in cover else ""
+
+
+def _gist(text):
+    first = text.split("\n", 1)[0]
+    return first[:57].rstrip() + "..." if len(first) > 60 else first
+
+
+def waiting_mark(task):
+    q = open_question(task)
+    return f"  (waiting for the human: {_gist(question_text(q))})" if q else ""
+
+
+def changes_mark(task, cover):
+    r = change_request(task) if task["id"].upper() not in cover else None
+    return f"  (changes requested: {_gist(change_text(r))})" if r else ""
 
 
 def print_rows(rows, tasks_by_id, indent="  ", show_state=True, cover=None):
     w = id_width(rows)
     for t in rows:
-        state = f"{view_state(t, tasks_by_id, cover):<10}" if show_state else ""
+        state = f"{view_state(t, tasks_by_id):<10}" if show_state else ""
         print(f"{indent}{t['id']:<{w}}  {state}{t['title']}{yolo_mark(t, cover)}")
 
 
@@ -702,12 +758,19 @@ def print_task(board, task):
     tasks = task_map(board)
     cover = yolo_cover(board)
     print(f"{task['id']}  {task['title']}")
-    print(f"State:  {view_state(task, tasks, cover)}")
+    print(f"State:  {view_state(task, tasks)}")
+    if q := open_question(task):
+        print(f"Waits:  for the human to reply to the question {q.get('by') or 'agent'} asked; the next note ends the wait")
+    if changes_mark(task, cover):
+        print(f"Revise: the human asked for changes (see the notes); change the proposal with "
+              f"`{command_line('edit ' + task['id'])}` and say what you changed with -m, which answers the request")
     print(f"Group:  {group_label(board, task.get('group'))}")
     if task.get("by"):
         print(f"By:     {task['by']}" + (f", {task['at']}" if task.get("at") else ""))
     via = cover.get(task["id"].upper())
-    if via and task["state"] not in ("review", "done"):
+    if via and task["state"] == "proposed":
+        print(f"YOLO:   joins the chain of {via} once a human approves it")
+    elif via and task["state"] not in ("review", "done"):
         if via == task["id"]:
             print("YOLO:   set on this task; you may start it without approval, and finishing sends it to review")
         else:
@@ -720,12 +783,12 @@ def print_task(board, task):
                 print(f"  [?] {dep}  (missing)")
             else:
                 mark = "x" if d["state"] == "done" else " "
-                print(f"  [{mark}] {d['id']}  {d['title']}  ({view_state(d, tasks, cover)}){yolo_mark(d, cover)}")
+                print(f"  [{mark}] {d['id']}  {d['title']}  ({view_state(d, tasks)}){yolo_mark(d, cover)}")
     blocks = [t for t in board["tasks"] if task["id"].upper() in (d.upper() for d in t.get("deps", []))]
     if blocks:
         print("Blocks:")
         for t in blocks:
-            print(f"  {t['id']}  {t['title']}  ({view_state(t, tasks, cover)}){yolo_mark(t, cover)}")
+            print(f"  {t['id']}  {t['title']}  ({view_state(t, tasks)}){yolo_mark(t, cover)}")
     print("\nDescription:")
     print(_indent(task.get("desc") or "(none)"))
     if task.get("notes"):
@@ -822,9 +885,9 @@ def cmd_status(args):
     cover = yolo_cover(board)
     buckets = {k: [] for k in ("doing", "review", "todo", "blocked", "proposed", "done")}
     for t in board["tasks"]:
-        buckets.setdefault(view_state(t, tasks, cover), []).append(t)
+        buckets.setdefault(view_state(t, tasks), []).append(t)
     total = len(board["tasks"])
-    print(f"{board.get('title') or 'Kanvas'}  ({rel(path)})")
+    print(f"{board.get('title') or board_name(path)}  ({rel(path)})")
     if not total:
         print("No tasks yet. Propose some with `propose` or `batch`.")
     else:
@@ -860,7 +923,7 @@ def cmd_status(args):
             line = f"  {t['id']:<{w}}  {t['title']}"
             if key == "blocked":
                 line += f"  (waiting on {', '.join(unmet_deps(t, tasks))})"
-            line += yolo_mark(t, cover)
+            line += yolo_mark(t, cover) + waiting_mark(t) + changes_mark(t, cover)
             print(line)
     errors, warnings = problems(board)
     if errors or warnings:
@@ -883,7 +946,7 @@ def cmd_list(args):
     if flt:
         state = "todo" if flt == "ready" else flt
         if state in STATES or state == "blocked":
-            rows = [t for t in rows if view_state(t, tasks, cover) == state]
+            rows = [t for t in rows if view_state(t, tasks) == state]
         else:
             g = find_group(board, args.filter)
             groups = [g]
@@ -914,11 +977,11 @@ def cmd_ready(args):
     board = load_board(board_path(args))
     tasks = task_map(board)
     cover = yolo_cover(board)
-    ready = [t for t in board["tasks"] if view_state(t, tasks, cover) == "todo"]
+    ready = [t for t in board["tasks"] if view_state(t, tasks) == "todo"]
     if ready:
         print_rows(ready, tasks, indent="", show_state=False, cover=cover)
         return
-    states = Counter(view_state(t, tasks, cover) for t in board["tasks"])
+    states = Counter(view_state(t, tasks) for t in board["tasks"])
     hints = [f"{states[k]} {k}" for k in ("doing", "review", "blocked", "proposed") if states[k]]
     print("No tasks ready to start." + (f" ({', '.join(hints)})" if hints else ""))
     if states["proposed"]:
@@ -930,8 +993,7 @@ def cmd_ready(args):
 def cmd_blocked(args):
     board = load_board(board_path(args))
     tasks = task_map(board)
-    cover = yolo_cover(board)
-    blocked = [t for t in board["tasks"] if view_state(t, tasks, cover) == "blocked"]
+    blocked = [t for t in board["tasks"] if view_state(t, tasks) == "blocked"]
     if not blocked:
         print("No blocked tasks.")
         return
@@ -939,7 +1001,7 @@ def cmd_blocked(args):
         print(f"{t['id']}  {t['title']}")
         for dep in unmet_deps(t, tasks):
             d = tasks.get(dep.upper())
-            print(f"  waiting on {dep}  " + (f"{d['title']}  ({view_state(d, tasks, cover)})" if d else "(missing)"))
+            print(f"  waiting on {dep}  " + (f"{d['title']}  ({view_state(d, tasks)})" if d else "(missing)"))
 
 
 def cmd_check(args):
@@ -962,24 +1024,23 @@ def cmd_check(args):
 
 def cmd_start(args):
     path = board_path(args)
-    note = read_input(args.message, what="note") if args.message else ""
+    note = read_input(args.message, args.stdin, args.file, "note")
 
     def op(board):
         tasks = task_map(board)
         t = find_task(board, args.id)
-        vs = view_state(t, tasks, yolo_cover(board))
+        vs = view_state(t, tasks)
         if vs == "blocked":
             raise KanvasError(f"{t['id']} is blocked by unfinished {', '.join(unmet_deps(t, tasks))}")
         if vs != "todo":
             raise KanvasError(f"{t['id']} cannot be started: {STATE_HINTS[vs]}")
-        was = t["state"]
         t["state"] = "doing"
         if note:
             add_note(t, note, actor(args))
-        return board, t, was
+        return board, t
 
-    board, t, was = mutate(path, op)
-    print(f"Started {t['id']} ({was} -> doing{', approved by YOLO' if was == 'proposed' else ''})\n")
+    board, t = mutate(path, op)
+    print(f"Started {t['id']} (todo -> doing)\n")
     print_task(board, t)
 
 
@@ -1037,12 +1098,38 @@ def cmd_note(args):
         t = find_task(board, args.id)
         if t["state"] == "done":
             raise KanvasError(f"{t['id']} is done; propose a follow-up task instead")
+        waited, requested = open_question(t), change_request(t)
         add_note(t, text, actor(args))
+        return t, waited, requested
+
+    t, waited, requested = mutate(path, op)
+    count = len(t["notes"])
+    print(f"Added a note to {t['id']} ({count} note{'' if count == 1 else 's'})")
+    if waited and not open_question(t):
+        print(f"{t['id']} no longer waits for the human.")
+    if requested and not change_request(t):
+        print(f"This note answers the human's request for changes on {t['id']}.")
+
+
+def cmd_ask(args):
+    path = board_path(args)
+    text = read_input(args.text, args.stdin, args.file, "question")
+    if text.startswith(QUESTION):
+        text = text[len(QUESTION):].strip()
+    if not text:
+        raise KanvasError("The question is empty")
+
+    def op(board):
+        t = find_task(board, args.id)
+        if t["state"] != "doing":
+            raise KanvasError(f"{t['id']} is {view_state(t, task_map(board))}; ask on a task you are working on, "
+                              "or only in the conversation")
+        add_note(t, f"{QUESTION} {text}", actor(args))
         return t
 
     t = mutate(path, op)
-    count = len(t["notes"])
-    print(f"Added a note to {t['id']} ({count} note{'' if count == 1 else 's'})")
+    print(f"{t['id']} now shows the human that you wait for their reply. Ask the same question in the conversation "
+          f"and stop. When they reply, record the answer with `{command_line('note ' + t['id'])}`, which ends the wait.")
 
 
 def cmd_propose(args):
@@ -1082,6 +1169,54 @@ def resolve_ref(board, ref, batch_titles):
     raise KanvasError(f"Dependency '{ref}' not found (use a task ID, or the title of an earlier task in this batch)")
 
 
+def batch_items(spec):
+    """The groups of a batch as (name, prefix) and its tasks as dicts, after checking the shape of every field."""
+    if isinstance(spec, list):
+        spec = {"tasks": spec}
+    if not isinstance(spec, dict):
+        raise KanvasError('Batch must be a JSON object: {"groups": [...], "tasks": [...]}')
+    groups, items = spec.get("groups", []), spec.get("tasks", [])
+    if not isinstance(groups, list):
+        raise KanvasError('Batch "groups" must be a list of group names or {"name": ..., "prefix": ...} objects')
+    if not isinstance(items, list):
+        raise KanvasError('Batch "tasks" must be a list of task objects, such as {"title": ..., "group": ...}')
+    if not groups and not items:
+        raise KanvasError('The batch has no groups or tasks: give {"groups": [...], "tasks": [...]}')
+    out_groups, out_tasks = [], []
+    for i, g in enumerate(groups, 1):
+        if isinstance(g, str):
+            g = {"name": g}
+        if not isinstance(g, dict):
+            raise KanvasError(f'Group #{i} in the batch must be a name or a {{"name": ..., "prefix": ...}} object')
+        name, prefix = g.get("name"), g.get("prefix")
+        if not isinstance(name, str) or not name.strip():
+            raise KanvasError(f'Group #{i} in the batch needs a "name" (a string)')
+        if prefix is not None and not isinstance(prefix, str):
+            raise KanvasError(f'Group \'{name}\': "prefix" must be a string, such as "QA"')
+        out_groups.append((name, prefix))
+    for i, item in enumerate(items, 1):
+        if not isinstance(item, dict):
+            raise KanvasError(f'Task #{i} in the batch must be an object, such as {{"title": ..., "group": ...}}')
+        title = item.get("title")
+        if title is not None and not isinstance(title, str):
+            raise KanvasError(f'Task #{i} in the batch: "title" must be a string')
+        if not (title or "").strip():
+            raise KanvasError(f"Task #{i} in the batch has no title")
+        desc_key = "description" if "description" in item and "desc" not in item else "desc"
+        deps_key = "depends_on" if "depends_on" in item and "deps" not in item else "deps"
+        desc, group, deps = item.get(desc_key), item.get("group"), item.get(deps_key)
+        if desc is not None and not isinstance(desc, str):
+            raise KanvasError(f"Task '{title}': \"{desc_key}\" must be a string")
+        if group is not None and not isinstance(group, str):
+            raise KanvasError(f"Task '{title}': \"group\" must be a string, the name or prefix of a group")
+        if isinstance(deps, str):
+            deps = [deps]
+        if deps is not None and not (isinstance(deps, list) and all(isinstance(r, str) for r in deps)):
+            raise KanvasError(f"Task '{title}': \"{deps_key}\" must be a task ID or title, or a list of them")
+        out_tasks.append({"title": title, "group": group or "", "desc": desc or "", "deps": deps or []})
+    return out_groups, out_tasks
+
+
 def cmd_batch(args):
     path = board_path(args)
     if not args.file and sys.stdin.isatty():
@@ -1091,31 +1226,21 @@ def cmd_batch(args):
         spec = json.loads(raw)
     except json.JSONDecodeError as e:
         raise KanvasError(f"Batch is not valid JSON: {e}")
-    if isinstance(spec, list):
-        spec = {"tasks": spec}
-    if not isinstance(spec, dict):
-        raise KanvasError('Batch must be a JSON object: {"groups": [...], "tasks": [...]}')
+    groups, items = batch_items(spec)
 
     def op(board):
         new_groups, new_tasks, titles = [], [], {}
-        for g in spec.get("groups", []):
-            name, prefix = (g, None) if isinstance(g, str) else (g.get("name"), g.get("prefix"))
+        for name, prefix in groups:
             group, created = add_group(board, name, prefix)
             if created:
                 new_groups.append(group)
-        for i, item in enumerate(spec.get("tasks", []), 1):
-            if not isinstance(item, dict) or not str(item.get("title", "")).strip():
-                raise KanvasError(f"Task #{i} in the batch has no title")
-            group = find_group(board, item["group"]) if item.get("group") else None
-            refs = item.get("deps", item.get("depends_on")) or []
-            if isinstance(refs, str):
-                refs = [refs]
+        for item in items:
             try:
-                deps = [resolve_ref(board, r, titles) for r in refs]
+                group = find_group(board, item["group"]) if item["group"] else None
+                deps = [resolve_ref(board, r, titles) for r in item["deps"]]
             except KanvasError as e:
                 raise KanvasError(f"Task '{item['title']}': {e}")
-            desc = item.get("desc", item.get("description", ""))
-            t = add_task(board, item["title"], group, desc, deps, by=actor(args))
+            t = add_task(board, item["title"], group, item["desc"], deps, by=actor(args))
             titles[t["title"].lower()] = t["id"]
             new_tasks.append(t)
         return new_groups, new_tasks
@@ -1126,7 +1251,8 @@ def cmd_batch(args):
     for t in new_tasks:
         deps = f"  (after {', '.join(t['deps'])})" if t["deps"] else ""
         print(f"+ {t['id']}  {t['title']}{deps}")
-    print(f"Proposed {len(new_tasks)} tasks. A human must approve them before work starts.")
+    one = len(new_tasks) == 1
+    print(f"Proposed {len(new_tasks)} task{'' if one else 's'}. A human must approve {'it' if one else 'them'} before work starts.")
 
 
 def cmd_depend(args):
@@ -1136,6 +1262,7 @@ def cmd_depend(args):
         t = find_task(board, args.id)
         if t["state"] == "done":
             raise KanvasError(f"{t['id']} is done; dependencies can no longer change")
+        before = yolo_cover(board)
         added = []
         for ref in args.on:
             d = find_task(board, ref)
@@ -1145,22 +1272,25 @@ def cmd_depend(args):
                 raise KanvasError(f"{t['id']} cannot depend on {d['id']}: that would create a circular dependency")
             t["deps"].append(d["id"])
             added.append(d["id"])
-        return t, added, view_state(t, task_map(board))
+        cover = yolo_cover(board)
+        joined = [x["id"] for x in board["tasks"]
+                  if x["state"] == "proposed" and x["id"].upper() in cover and x["id"].upper() not in before]
+        return t, added, view_state(t, task_map(board)), joined
 
-    t, added, vs = mutate(path, op)
+    t, added, vs, joined = mutate(path, op)
     if not added:
         print(f"{t['id']} already depends on {', '.join(args.on)}")
         return
     print(f"{t['id']} now depends on {', '.join(added)}" + (" (blocked until they are done)" if vs == "blocked" else ""))
+    if joined:
+        print(f"YOLO does not approve proposals linked into its chain: ask the human to approve {', '.join(joined)} in the board.")
 
 
-def find_proposal(board, ref, cover):
-    """A task agents may still change: proposed, and not approved by YOLO."""
+def find_proposal(board, ref):
+    """A task agents may still change: one that is still proposed."""
     t = find_task(board, ref)
     if t["state"] != "proposed":
         raise KanvasError(f"{t['id']} is approved ({t['state']}); only a human can change it now, in the board")
-    if t["id"].upper() in cover:
-        raise KanvasError(f"{t['id']} is under YOLO, which counts as approval; only a human can change it now")
     return t
 
 
@@ -1173,7 +1303,8 @@ def cmd_edit(args):
         raise KanvasError("Nothing to change: give --title, --group, or a description (--desc, --stdin or --file)")
 
     def op(board):
-        t = find_proposal(board, args.id, yolo_cover(board))
+        t = find_proposal(board, args.id)
+        requested = change_request(t)
         changed = []
         if args.title is not None:
             title = " ".join(args.title.split())
@@ -1192,21 +1323,25 @@ def cmd_edit(args):
             changed.append("description")
         if note:
             add_note(t, note, actor(args))
-        return t, changed
+        return t, changed, requested
 
-    t, changed = mutate(path, op)
+    t, changed, requested = mutate(path, op)
     what = " and ".join([", ".join(changed[:-1]), changed[-1]] if len(changed) > 1 else changed) or "nothing (it already read that way)"
     print(f"Revised {t['id']}: {what}{', with a note' if note else ''}")
+    if requested and change_request(t):
+        print(f"The human's request for changes on {t['id']} stays open until you say what you changed: "
+              f"`{command_line('note ' + t['id'])} \"...\"`, or -m with your next edit.")
+    elif requested:
+        print(f"This answers the human's request for changes on {t['id']}.")
 
 
 def cmd_withdraw(args):
     path = board_path(args)
 
     def op(board):
-        cover = yolo_cover(board)
         gone = []
         for ref in args.ids:
-            t = find_proposal(board, ref, cover)
+            t = find_proposal(board, ref)
             if t["id"] not in gone:
                 gone.append(t["id"])
         keys = {g.upper() for g in gone}
@@ -1235,7 +1370,7 @@ def cmd_undepend(args):
     path = board_path(args)
 
     def op(board):
-        t = find_proposal(board, args.id, yolo_cover(board))
+        t = find_proposal(board, args.id)
         keys = {str(r).strip().upper() for r in args.on}
         removed = [d for d in t["deps"] if d.upper() in keys]
         missing = [r for r in args.on if str(r).strip().upper() not in {d.upper() for d in t["deps"]}]
@@ -1492,7 +1627,7 @@ def cmd_export(args):
     if SNAPSHOT_TAG not in html:
         raise KanvasError("kanvas.html has no snapshot slot")
     data = json.dumps(canonical(board), ensure_ascii=False).replace("<", "\\u003c")
-    tag = SNAPSHOT_TAG.replace('json">', f'json" data-at="{now_iso()}">{data}', 1)
+    tag = SNAPSHOT_TAG.replace('json">', f'json" data-at="{now_iso()}" data-name="{escape(board_name(path))}">{data}', 1)
     out = os.path.abspath(args.output)
     write_text_atomic(out, html.replace(SNAPSHOT_TAG, tag, 1))
     print(f"Wrote {rel(out)}: a read-only snapshot of {len(board['tasks'])} tasks. Open or share it as is.")
@@ -1715,6 +1850,7 @@ def page(title, body):
 
 
 LOCAL_NAMES = frozenset({"localhost", "127.0.0.1", "[::1]"})
+DEFAULT_PORT = 8765
 
 
 def state_file():
@@ -1741,6 +1877,8 @@ class BoardServer(ThreadingHTTPServer):
         """`hosts` are the names allowed in the Host header, or None for any. A server made with
         `share` serves the boards of that one and cannot open boards itself. With `remember`, a
         file path, the open boards and whether phones may connect are kept there for the next start."""
+        # TCPServer.__init__ calls server_close when the port is busy, before the rest is set up.
+        self.phone_listener = None
         super().__init__(address, BoardHandler)
         self.hosts = hosts
         self.quiet = quiet
@@ -1748,7 +1886,6 @@ class BoardServer(ThreadingHTTPServer):
         self.main = share or self
         self.opens_boards = share is None
         self.phone = []  # base URLs of the Tailscale listener, by name and by address
-        self.phone_listener = None
         self.phone_lock = threading.Lock()
         self.boards = share.boards if share else {}  # name -> path, in the order the boards were opened
         self.boards_lock = share.boards_lock if share else threading.Lock()
@@ -1906,13 +2043,37 @@ class BoardHandler(BaseHTTPRequestHandler):
     def _redirect(self, location):
         self._send(302, headers={"Location": location})
 
-    def _host_allowed(self):
-        # Rejecting foreign Host headers blocks DNS-rebinding attacks from web pages.
-        if not self.server.check_host:
-            return True
+    def _host_name(self):
         host = (self.headers.get("Host") or "").strip().lower()
         name = host.split("]")[0] + "]" if host.startswith("[") else host.rsplit(":", 1)[0]
-        return name.rstrip(".") in self.server.hosts
+        return name.rstrip(".")
+
+    def _host_allowed(self):
+        # Rejecting foreign Host headers blocks DNS-rebinding attacks from web pages.
+        return not self.server.check_host or self._host_name() in self.server.hosts
+
+    def _from_this_computer(self):
+        """Whether the request comes from this computer by one of its local names, with no proxy between.
+        Phones, other devices and `tailscale serve`, which passes requests on by this computer's Tailscale
+        name and adds X-Forwarded headers, do not."""
+        try:
+            loopback = ipaddress.ip_address(self.client_address[0]).is_loopback
+        except ValueError:
+            return False
+        forwarded = any(self.headers.get(h) for h in ("Forwarded", "X-Forwarded-For", "X-Forwarded-Host"))
+        return loopback and not forwarded and self._host_name() in LOCAL_NAMES
+
+    def _may_manage(self):
+        """Whether the request may open boards and open or close Kanvas to phones, which stay with
+        the computer: only the main server does that, and only for this computer."""
+        return self.server.opens_boards and self._from_this_computer()
+
+    def _board_list(self):
+        """The open boards, with where each one lives for this computer only."""
+        boards = self.server.board_list()
+        if self._from_this_computer():
+            return boards
+        return [{"name": b["name"], "title": b["title"]} for b in boards]
 
     def _route(self):
         """The request path as a list of parts: "/a/b/" gives ["a", "b", ""]."""
@@ -1923,7 +2084,12 @@ class BoardHandler(BaseHTTPRequestHandler):
         # Requiring JSON forces a CORS preflight, so other sites cannot write.
         if not (self.headers.get("Content-Type") or "").startswith("application/json"):
             return self._error(415, "Expected application/json")
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0:
+            return self._error(400, "Expected the length of the body in bytes in Content-Length")
         if length > MAX_UPLOAD:
             return self._error(413, "Too large")
         try:
@@ -1936,16 +2102,17 @@ class BoardHandler(BaseHTTPRequestHandler):
             return self._error(403, "Host not allowed")
         parts = self._route()
         if parts in ([""], ["index.html"]):
-            boards = self.server.board_list()
+            boards = self._board_list()
             if len(boards) == 1:
                 return self._redirect(f"/{quote(boards[0]['name'])}/")
-            links = "".join(f'<a class="board" href="/{quote(b["name"])}/">{escape(b["title"])}<small>{escape(b["path"])}</small></a>'
-                            for b in boards)
+            links = "".join(f'<a class="board" href="/{quote(b["name"])}/">{escape(b["title"])}'
+                            + (f'<small>{escape(b["path"])}</small>' if "path" in b else "") + "</a>" for b in boards)
             body = (f"<h1>Kanvas</h1>{links}" if boards else "<h1>Kanvas</h1><p>No boards are open. Run <code>kanvas serve</code> in a project to open its board here.</p>")
-            body += "<p><small>Run <code>kanvas serve</code> in a project to open its board here.</small></p>"
+            if boards:
+                body += "<p><small>Run <code>kanvas serve</code> in a project to open its board here.</small></p>"
             return self._send(200, page("Kanvas", body), "text/html; charset=utf-8")
         if parts == ["api", "boards"]:
-            info = {"kanvas": VERSION, "boards": self.server.board_list()}
+            info = {"kanvas": VERSION, "boards": self._board_list()}
             return self._send(200, json.dumps(info, ensure_ascii=False).encode("utf-8"))
         name, rest = parts[0], parts[1:]
         path = self.server.board_path(name)
@@ -1953,7 +2120,7 @@ class BoardHandler(BaseHTTPRequestHandler):
             if rest[:1] == ["api"]:
                 return self._error(404, f"No board called {name} is open here; run `kanvas serve` in its project")
             body = (f"<h1>No board called {escape(name)} is open</h1><p>Run <code>kanvas serve</code> in its project, then reload this page."
-                    ' Kanvas forgets its boards when it stops.</p><p><a href="/">Open boards</a></p>')
+                    ' If it was open here before, its project folder may have been moved or renamed.</p><p><a href="/">Open boards</a></p>')
             return self._send(404, page("Kanvas", body), "text/html; charset=utf-8")
         if not rest:
             return self._redirect(f"/{quote(name)}/")
@@ -1979,9 +2146,10 @@ class BoardHandler(BaseHTTPRequestHandler):
         return self._error(404, "Not found")
 
     def _phone(self, name):
-        """The board's addresses for phones on Tailscale, with a QR code of the first; none while closed to phones."""
+        """The board's addresses for phones on Tailscale, with a QR code of the first; none while closed to phones.
+        `manage` says whether this request may open or close Kanvas to phones."""
         urls = [f"{base}{quote(name)}/" for base in self.server.main.phone]
-        info = {"urls": urls, "qr": qr_svg(urls[0]) if urls else None}
+        info = {"urls": urls, "qr": qr_svg(urls[0]) if urls else None, "manage": self._may_manage()}
         self._send(200, json.dumps(info).encode("utf-8"))
 
     def do_POST(self):
@@ -1990,7 +2158,7 @@ class BoardHandler(BaseHTTPRequestHandler):
             return self._error(403, "Host not allowed")
         parts = self._route()
         if parts[1:] == ["api", "phone"] and self.server.board_path(parts[0]) is not None:
-            if not self.server.opens_boards:
+            if not self._may_manage():
                 return self._error(403, "Only the computer running Kanvas can open it to phones")
             if self._read_json() is None:
                 return
@@ -2004,7 +2172,7 @@ class BoardHandler(BaseHTTPRequestHandler):
             return self._phone(parts[0])
         if parts != ["api", "boards"]:
             return self._error(404, "Not found")
-        if not self.server.opens_boards:
+        if not self._may_manage():
             return self._error(403, "Boards open only from the computer running Kanvas")
         text = self._read_json()
         if text is None:
@@ -2034,7 +2202,7 @@ class BoardHandler(BaseHTTPRequestHandler):
         parts = self._route()
         if parts[1:] != ["api", "phone"] or self.server.board_path(parts[0]) is None:
             return self._error(404, "Not found")
-        if not self.server.opens_boards:
+        if not self._may_manage():
             return self._error(403, "Only the computer running Kanvas can close it to phones")
         if not (self.headers.get("Content-Type") or "").startswith("application/json"):
             return self._error(415, "Expected application/json")
@@ -2054,8 +2222,14 @@ class BoardHandler(BaseHTTPRequestHandler):
         text = self._read_json()
         if text is None:
             return
+        expected = self.headers.get("If-Match")
+        if not expected:
+            return self._error(428, "Expected If-Match with the ETag of the board this changes; load the board first")
         try:
             board = parse_board(text)
+            # parse_board fills in a missing task list, which would empty the board.
+            if "tasks" not in json.loads(text):
+                raise KanvasError("Expected a board with its task list")
         except KanvasError as e:
             return self._error(400, str(e))
         errors = structural_errors(board)
@@ -2067,19 +2241,19 @@ class BoardHandler(BaseHTTPRequestHandler):
                 with open(path, "rb") as f:
                     current = f.read()
                 current_tag = etag_of(current)
-                expected = self.headers.get("If-Match")
-                if expected and expected != current_tag:
+                if expected != current_tag:
                     return self._send(409, current, headers={"ETag": current_tag})
                 if data != current:
                     write_text_atomic(path, data.decode("utf-8"))
                     if not self.server.quiet:
                         print(f"[{time.strftime('%H:%M:%S')}] saved {parts[0]} from the browser", flush=True)
         except (KanvasError, OSError) as e:
-            return self._error(503, str(e))
+            # The reason names the board's folder or its lock file.
+            return self._error(503, str(e) if self._from_this_computer() else "The computer running Kanvas could not save the board")
         self._send(200, data, headers={"ETag": etag_of(data)})
 
 
-def start_server(path, host="127.0.0.1", port=8765, quiet=False, remember=None):
+def start_server(path, host="127.0.0.1", port=DEFAULT_PORT, quiet=False, remember=None):
     """Serve the board at `path` (or none) on the first free port from `port` on. With `remember`,
     the boards open last time come back first, and `phone_wanted` says whether phones could connect."""
     hosts = LOCAL_NAMES if host in ("127.0.0.1", "localhost") else None
@@ -2115,10 +2289,10 @@ def port_free(host, port):
 def find_running(port, host="127.0.0.1"):
     """Return (url, version) of a Kanvas already serving boards on one of the ports `serve` tries, or None."""
     for p in range(port, port + 20):
-        # A Kanvas takes the first free port, so one that is free ends the search. Checking it this way
-        # avoids connecting to closed ports, which takes seconds on Windows.
+        # A Kanvas may hold a later port after the ones below it were freed. Only taken ports are
+        # probed, since connecting to a closed port takes seconds on Windows.
         if port_free(host, p):
-            return None
+            continue
         try:
             with LOCAL.open(f"http://{host}:{p}/api/boards", timeout=1) as r:
                 info = json.loads(r.read().decode("utf-8"))
@@ -2355,7 +2529,7 @@ def service_paths():
     return os.path.join(config, "systemd", "user", f"{SERVICE_NAME}.service")
 
 
-def service_install(tailscale):
+def service_install(tailscale, wait=10):
     cmd = service_command()
     if tailscale:
         # The service opens to phones once Tailscale is up, as it would after opening from the board.
@@ -2373,6 +2547,7 @@ def service_install(tailscale):
         os.makedirs(os.path.dirname(xml_path), exist_ok=True)
         with open(xml_path, "w", encoding="utf-16") as f:
             f.write(windows_task(cmd))
+        stop = ["schtasks", "/End", "/TN", SERVICE_NAME]
         steps = [["schtasks", "/Create", "/TN", SERVICE_NAME, "/XML", xml_path, "/F"], ["schtasks", "/Run", "/TN", SERVICE_NAME]]
         where = "a Task Scheduler task that runs when you log in"
     elif sys.platform == "darwin":
@@ -2380,14 +2555,19 @@ def service_install(tailscale):
         with open(path, "wb") as f:
             f.write(launchd_plist(cmd))
         domain = f"gui/{os.getuid()}"
-        run_quiet(["launchctl", "bootout", f"{domain}/{SERVICE_NAME}"])
+        stop = ["launchctl", "bootout", f"{domain}/{SERVICE_NAME}"]
         steps = [["launchctl", "bootstrap", domain, path]]
         where = path
     else:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         write_text_atomic(path, systemd_unit(cmd))
+        stop = ["systemctl", "--user", "stop", f"{SERVICE_NAME}.service"]
         steps = [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", f"{SERVICE_NAME}.service"]]
         where = path
+    # Once the service is stopped, a Kanvas that still answers was started with `kanvas serve`.
+    # The service's own `serve --saved` then finds it and exits, and nothing restarts a clean exit.
+    run_quiet(stop)
+    by_hand = find_running(DEFAULT_PORT)
     for step in steps:
         code, out = run_quiet(step)
         if code:
@@ -2396,9 +2576,18 @@ def service_install(tailscale):
     print("It serves the boards you open with `kanvas serve`, and remembers them across restarts.")
     if tailscale:
         print("It also opens them to your phone over Tailscale, as soon as Tailscale is connected.")
-    running = find_running(8765)
-    if running:
-        print(f"Open {running[0]}")
+    if by_hand:
+        again = "kanvas service install" + (" --tailscale" if tailscale else "")
+        print(f"Kanvas already runs at {by_hand[0]}, started with `kanvas serve`; the service leaves your boards to it and stops.")
+        print("Once that Kanvas stops, nothing serves them until you log in again. To hand them to the service now, "
+              f"stop it (Ctrl+C in its terminal) and run `{again}` again.")
+    else:
+        deadline = time.monotonic() + wait
+        running = find_running(DEFAULT_PORT)
+        while not running and time.monotonic() < deadline:
+            time.sleep(0.25)
+            running = find_running(DEFAULT_PORT)
+        print(f"Open {running[0]}" if running else "It has not answered yet; `kanvas service status` says when it runs.")
     if os.name != "nt" and sys.platform != "darwin":
         print(f"To start it at boot, before you log in: loginctl enable-linger {os.environ.get('USER') or '$USER'}")
 
@@ -2430,7 +2619,7 @@ def service_status():
     else:
         installed = os.path.exists(path)
     print("Starts when you log in: " + ("yes" if installed else "no (`kanvas service install` sets that up)"))
-    running = find_running(8765)
+    running = find_running(DEFAULT_PORT)
     print(f"Running: yes, at {running[0]}" if running else "Running: no")
     try:
         state = json.loads(read_text_file(state_file()))
@@ -2456,8 +2645,11 @@ workflow:  proposed -> todo -> doing -> review -> done
   edit, withdraw or rewire proposals until a human approves them.
   Humans approve proposals and mark work done in the board (`serve`).
   A todo task with unfinished dependencies shows as blocked.
-  YOLO on a task: it and everything it depends on need no approval;
+  An agent that needs the human's reply in the conversation runs `ask`
+  first, so the board shows the task waiting for them until the next note.
+  YOLO on a task: turning it on approves it and everything it depends on;
   finishing them marks them done, and the YOLO task itself goes to review.
+  A proposal linked into the chain later still needs a human's approval.
   When YOLO tasks follow one another in a chain, only the last one goes to
   review. YOLO ends once its task is in review.
 
@@ -2506,6 +2698,7 @@ def build_parser():
     p = add("start", cmd_start, "start a ready task (todo -> doing)")
     p.add_argument("id")
     p.add_argument("-m", "--message", help="optional note, e.g. your plan")
+    text_sources(p, "note")
     p = add("finish", cmd_finish, "hand a task over for review (doing -> review; done when a YOLO task depends on it); "
                                   "needs a summary")
     p.add_argument("id")
@@ -2519,6 +2712,11 @@ def build_parser():
     p.add_argument("id")
     p.add_argument("text", nargs="?")
     text_sources(p, "note")
+    p = add("ask", cmd_ask, "show the human that you wait for their reply to a question in the conversation; "
+                            "the next note ends the wait")
+    p.add_argument("id")
+    p.add_argument("text", nargs="?", help="the question, as you ask it in the conversation")
+    text_sources(p, "question")
     p = add("propose", cmd_propose, "propose a new task (a human approves it)")
     p.add_argument("group", help="group name or prefix, or - for none")
     p.add_argument("title")
@@ -2547,7 +2745,9 @@ def build_parser():
     p.add_argument("on", nargs="+", metavar="ON")
 
     p = add("serve", cmd_serve, "open the interactive board in your browser")
-    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--port", type=int, default=DEFAULT_PORT,
+                   help=f"port to serve on (default: %(default)s), or the next free one up to 19 higher ({DEFAULT_PORT + 19} by default); "
+                        "when a Kanvas already runs on any of these ports, serve opens the board there and returns")
     p.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 for containers or remote machines")
     p.add_argument("--tailscale", action="store_true", help="also open the boards to your phone and other devices on your Tailscale network")
     p.add_argument("--saved", action="store_true", help="serve only the boards open last time, without a project of its own (for `kanvas service`)")

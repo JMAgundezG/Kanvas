@@ -19,7 +19,7 @@ Kanvas is a task board shared by humans and AI agents. This file is for agents a
 
 - **Zero dependencies.** `kanvas.py` uses only the standard library and must run on Python 3.8 on Linux, macOS and Windows. `kanvas.html` loads nothing from the network.
 - **One format, two writers.** `kanvas.py` (`canonical`, `dumps`) and `kanvas.html` (`canonical`, `serialize`) must produce byte-identical files. Change both together; `test_html_serializer_matches_python` checks it.
-- **The CLI enforces the agent workflow.** Agents can propose, start, finish (with a summary), pause, note and add dependencies, and they can edit, withdraw and rewire proposals until a human approves them. Approving, changing approved tasks and marking done stay human-only, in the browser. Proposals under YOLO count as approved.
+- **The CLI enforces the agent workflow.** Agents can propose, start, finish (with a summary), pause, note and add dependencies, and they can edit, withdraw and rewire proposals until a human approves them. Approving, changing approved tasks and marking done stay human-only, in the browser. Turning YOLO on approves the chain's proposals; a proposal an agent links into the chain later stays a proposal.
 - **Writes are safe.** Every CLI write goes through `mutate()`: lock, load, change, atomic replace. Failed commands leave the file untouched. Browser saves are compare-and-swap through the server (`If-Match`, 409 with the current board, the change is replayed).
 - **Never edit a user's existing files.** `init` only creates files that do not exist yet, apart from the skill copies it owns.
 
@@ -28,6 +28,8 @@ Kanvas is a task board shared by humans and AI agents. This file is for agents a
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+`tests/test_browser.py` runs `kanvas.html` in headless Chrome against `kanvas.py serve` and checks loading, the task panel, saving notes, failed saves and live updates from the CLI. It skips where it finds no Chrome or Chromium; `KANVAS_TEST_CHROME` names the browser to use, and the Linux CI jobs set it so the test runs there.
 
 When changing `pyproject.toml`, or how `kanvas.py` finds `kanvas.html` and `SKILL.md`, build and install the package and check the installed command, as CI does on Linux, macOS and Windows:
 
@@ -41,6 +43,7 @@ The graph layout lives in the "Graph layout" section of `kanvas.html`, which mus
 ```bash
 python tests/layout_stats.py -v          # crossings, arrows under cards, straight arrows and bends, per board and flow
 python tests/layout_stats.py --manual    # the same for the manual layout, where cards keep their file order
+python tests/layout_stats.py --unfolded  # the same with every lane's finished tasks shown, as when all their stubs are open
 ```
 
 `LayoutTests` fails if crossings, arrows under cards or bends exceed its ceilings; lower them when the layout improves. In the browser console, `kanvasLayoutStats()` measures the board on screen.

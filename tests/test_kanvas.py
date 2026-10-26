@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import socketserver
 import subprocess
 import sys
@@ -63,7 +64,7 @@ def run_html_js(test, code, stdin, sections=()):
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
         f.write(js)
     test.addCleanup(os.remove, f.name)
-    proc = subprocess.run([node, f.name], input=stdin.encode("utf-8"), capture_output=True)
+    proc = subprocess.run([node, f.name], input=stdin.encode("utf-8"), capture_output=True, timeout=120)
     test.assertEqual(proc.returncode, 0, proc.stderr.decode())
     return proc.stdout.decode("utf-8")
 
@@ -202,6 +203,16 @@ class ModelTests(unittest.TestCase):
         board["tasks"].append(task("DV-100"))
         self.assertEqual(kanvas.next_id(board, "dv"), "DV-101")
 
+    def test_html_next_id_matches_python(self):
+        board = kanvas.new_board()
+        board["tasks"] = [task(tid) for tid in ("DV-007", "dv-12", "DV-99", "DVX-150", "D-170", "DV-X-140", "DV-", "DV-1a",
+                                                "-5", "DV-²", "DV-٣", "L0C-03", "g-04", "QA-1")]
+        prefixes = ["DV", "dv", "DVX", "D", "L0C", "G", "QA", "NEW"]
+        out = run_html_js(self, f"const b = normalize(input); process.stdout.write(JSON.stringify({json.dumps(prefixes)}.map((p) => nextId(b, p))));",
+                          json.dumps(board))
+        self.assertEqual(json.loads(out), [kanvas.next_id(board, p) for p in prefixes])
+        self.assertEqual(json.loads(out), ["DV-100", "DV-100", "DVX-151", "D-171", "L0C-04", "G-05", "QA-02", "NEW-01"])
+
     def test_problems(self):
         board = kanvas.new_board()
         board["tasks"] = [
@@ -276,6 +287,254 @@ class UndoTests(unittest.TestCase):
         out = run_html_js(self, code, json.dumps(self.notes(self.NOTE, self.NOTE, self.AGENT)))
         self.assertEqual(json.loads(out), [0, 1, 0, 1, 1, 2])
 
+    def test_undo_labels_name_the_action(self):
+        def board(*tasks, groups=("A", "B")):
+            return {"kanvas": 1, "title": "", "groups": [{"id": g, "name": f"Group {g}"} for g in groups], "tasks": list(tasks)}
+
+        def change(fn):
+            before = board(task("A-01", "proposed", "A"), task("A-02", "doing", "A", ["A-01"], notes=[self.NOTE]),
+                           task("A-03", "review", "A", ["A-02"]), task("A-04", "done", "A"), task("A-05", "proposed", "A"))
+            after = json.loads(json.dumps(before))
+            fn(after, {t["id"]: t for t in after["tasks"]})
+            return [before, after]
+
+        def drop(b, ids):
+            b["tasks"] = [t for t in b["tasks"] if t["id"] not in ids]
+            for t in b["tasks"]:
+                t["deps"] = [d for d in t["deps"] if d not in ids]
+
+        cases = {
+            "approving A-01": lambda b, t: t["A-01"].update(state="todo"),
+            "pausing A-02": lambda b, t: t["A-02"].update(state="todo"),
+            "sending A-03 back": lambda b, t: t["A-03"].update(state="todo", notes=[self.NOTE]),
+            "reopening A-04": lambda b, t: t["A-04"].update(state="todo"),
+            "starting A-01": lambda b, t: t["A-01"].update(state="doing"),
+            "marking A-02 and A-03 done": lambda b, t: [t[i].update(state="done") for i in ("A-02", "A-03")],
+            "moving A-04 to Proposed": lambda b, t: t["A-04"].update(state="proposed"),
+            "rejecting A-01": lambda b, t: drop(b, {"A-01"}),
+            "deleting A-02": lambda b, t: drop(b, {"A-02"}),
+            "rejecting A-01 and A-05": lambda b, t: drop(b, {"A-01", "A-05"}),
+            "unlinking A-03 from A-02": lambda b, t: t["A-03"].update(deps=[]),
+            "making A-05 wait for A-01 and A-04": lambda b, t: t["A-05"].update(deps=["A-01", "A-04"]),
+            "adding A-06": lambda b, t: (b["tasks"].append(task("A-06", group="A")), t["A-05"].update(deps=["A-06"])),
+            "turning on YOLO up to A-03": lambda b, t: (t["A-03"].update(yolo=True), t["A-01"].update(state="todo")),
+            "deleting the Group A group": lambda b, t: (b["groups"].pop(0), [x.update(group=None) for x in b["tasks"]]),
+            "adding a note to A-02": lambda b, t: t["A-02"]["notes"].append(self.AGENT),
+            "deleting a note from A-02": lambda b, t: t["A-02"].update(notes=[]),
+            "editing a note on A-02": lambda b, t: t["A-02"].update(notes=[dict(self.NOTE, text="New")]),
+            "asking for changes to A-05": lambda b, t: t["A-05"].update(notes=[dict(self.NOTE, text="Changes requested: Split it")]),
+            "renaming A-02": lambda b, t: t["A-02"].update(title="New title"),
+            "moving A-02 to Group B": lambda b, t: t["A-02"].update(group="B"),
+            "reordering the cards": lambda b, t: b["tasks"].reverse(),
+            "renaming the Group B group": lambda b, t: b["groups"][1].update(name="Beta"),
+            "renaming the board": lambda b, t: b.update(title="Board"),
+        }
+        pairs = [change(fn) for fn in cases.values()]
+        yolo_off = change(lambda b, t: t["A-03"].update(yolo=True))[::-1]
+        many = [board(*(task(f"A-0{i}", "proposed") for i in range(1, 6))), board(*(task(f"A-0{i}") for i in range(1, 6)))]
+        code = "process.stdout.write(JSON.stringify(input.map(([a, z]) => describeChange(normalize(a), normalize(z)))));"
+        out = run_html_js(self, code, json.dumps(pairs + [yolo_off, many]), [("const MOVE_WORDS =", "\n// Undoes or redoes")])
+        self.assertEqual(json.loads(out), list(cases) + ["turning off YOLO on A-03", "approving 5 tasks"])
+
+
+class FailedSaveTests(unittest.TestCase):
+    """A change that is not saved hands its text back through commit()'s onFail, and the board goes back."""
+
+    SECTIONS = [("async function commit(", "async function poll("), ("function mustFind(", "\n// ----")]
+
+    def run_commits(self, code, board):
+        setup = (
+            "let board, confirmed, store, lost = null, pending = 0, writes = 0, saveQueue = Promise.resolve();\n"
+            "const log = [], failed = [];\n"
+            "toast = (msg) => log.push(msg);\n"
+            "const setBoard = (b) => { board = b; }, render = () => {}, remember = () => ({}), forget = () => {}, setSync = () => {};\n"
+            "const onFail = (e) => failed.push(e.message);\n"
+            "board = normalize(input); confirmed = clone(board);\n"
+        )
+        return json.loads(run_html_js(self, setup + code, json.dumps(board), self.SECTIONS))
+
+    def test_a_failed_save_calls_on_fail_and_restores_the_board(self):
+        board = {"kanvas": 1, "title": "", "groups": [], "tasks": [task("A-01")]}
+        out = self.run_commits(
+            "store = { load: async () => clone(confirmed), save: async () => { throw new Error('server answered 500'); } };\n"
+            "(async () => {\n"
+            "  const refused = await commit(ops.note('A-09', 'Typed text'), { onFail });\n"
+            "  const queued = await commit(ops.note('A-01', 'Typed text'), { onFail });\n"
+            "  const shown = board.tasks[0].notes.length;\n"
+            "  await saveQueue;\n"
+            "  process.stdout.write(JSON.stringify({ refused, queued, shown, after: board.tasks[0].notes.length, failed, log }));\n"
+            "})();", board)
+        self.assertEqual((out["refused"], out["queued"], out["shown"], out["after"]), (False, True, 1, 0))
+        self.assertEqual(out["failed"], ["A-09 no longer exists", "server answered 500"])
+        self.assertEqual(out["log"], ["A-09 no longer exists", "Not saved: server answered 500"])
+
+    def test_a_saved_change_does_not_call_on_fail(self):
+        board = {"kanvas": 1, "title": "", "groups": [], "tasks": [task("A-01")]}
+        out = self.run_commits(
+            "store = { load: async () => clone(confirmed), save: async (fn, base) => { const b = clone(base); fn(b); return { board: b, base }; } };\n"
+            "(async () => {\n"
+            "  await commit(ops.note('A-01', 'Typed text'), { onFail });\n"
+            "  await saveQueue;\n"
+            "  process.stdout.write(JSON.stringify({ notes: confirmed.tasks[0].notes.map((n) => n.text), failed, log }));\n"
+            "})();", board)
+        self.assertEqual(out, {"notes": ["Typed text"], "failed": [], "log": []})
+
+    def test_changes_wait_while_the_board_cannot_be_reached(self):
+        board = {"kanvas": 1, "title": "", "groups": [], "tasks": [task("A-01")]}
+        out = self.run_commits(
+            "store = { save: async () => { throw new Error('tried to save'); } };\n"
+            "lost = 'Kanvas stopped running or cannot be reached';\n"
+            "(async () => {\n"
+            "  const ok = await commit(ops.note('A-01', 'Typed text'), { onFail });\n"
+            "  await saveQueue;\n"
+            "  process.stdout.write(JSON.stringify({ ok, pending, notes: board.tasks[0].notes.length, failed, log }));\n"
+            "})();", board)
+        self.assertEqual(out, {"ok": False, "pending": 0, "notes": 0, "failed": ["Kanvas stopped running or cannot be reached"],
+                               "log": ["Not saved: Kanvas stopped running or cannot be reached"]})
+
+
+class LostConnectionTests(unittest.TestCase):
+    """The server store tells a board it cannot reach from other errors, in plain words."""
+
+    def test_errors_say_when_the_board_cannot_be_reached(self):
+        code = (
+            "const setTimeout = (fn) => { fn(); return 0; };\n"
+            "let answer;\n"
+            "const fetch = (url, opts) => new Promise((resolve, reject) => {\n"
+            "  // setTimeout runs at once, so a request with a time limit is aborted before it starts; one without gets its late answer.\n"
+            "  if (answer === 'hang' && opts.signal.aborted) reject(new DOMException('aborted', 'AbortError'));\n"
+            "  else if (answer === 'hang') resolve({ ok: true, status: 200, text: async () => '{}', headers: new Map() });\n"
+            "  else if (answer === 'down') reject(new TypeError('Failed to fetch'));\n"
+            "  else resolve({ ok: false, status: answer, statusText: '', text: async () => '{\"error\": \"No board\"}', headers: new Map() });\n"
+            "});\n"
+            "(async () => {\n"
+            "  const out = {};\n"
+            "  for (answer of ['down', 'hang', 404, 500]) {\n"
+            "    for (const step of ['load', 'poll', 'save']) {\n"
+            "      try { await serverStore()[step]((b) => b, normalize({})); out[`${answer} ${step}`] = 'no error'; }\n"
+            "      catch (e) { out[`${answer} ${step}`] = [e.message, !!e.lost]; }\n"
+            "    }\n"
+            "  }\n"
+            "  process.stdout.write(JSON.stringify(out));\n"
+            "})();"
+        )
+        out = json.loads(run_html_js(self, code, "{}", [("function serverStore()", "function fileStore(")]))
+        down = ["Kanvas stopped running or cannot be reached", True]
+        closed = ["this board is no longer open in Kanvas", True]
+        self.assertEqual(out, {
+            "down load": down, "down poll": down, "down save": down,
+            # Only reads give up on a request that hangs: a write may have landed, and waits for its answer.
+            "hang load": down, "hang poll": down, "hang save": "no error",
+            "404 load": closed, "404 poll": closed, "404 save": ["No board", False],
+            "500 load": ["server answered 500", False], "500 poll": ["server answered 500", False], "500 save": ["No board", False],
+        })
+
+
+class FileStoreTests(TempBoard):
+    """In file mode, an agent's CLI write that lands while the page saves is kept, and the page's change goes on top."""
+
+    def save_with_agent(self, writes):
+        """Saves a human note on DV-03 while the CLI adds the agent notes in `writes` ({step: [text, ...]}) at that step.
+
+        The handle works as Chrome's does: createWritable() fills a swap file, and close() moves it over the board.
+        """
+        code = (
+            "const fs = require('fs'), { execFileSync } = require('child_process');\n"
+            "const [path, python, script, writes] = input;\n"
+            "let aborted = 0;\n"
+            "const agent = (step) => { const text = (writes[step] || []).shift();\n"
+            "  if (text) execFileSync(python, [script, 'note', 'DV-02', text, '--board', path, '--as', 'agent']); };\n"
+            "const handle = {\n"
+            "  name: 'kanvas.json',\n"
+            "  async getFile() { const text = fs.readFileSync(path, 'utf8'), st = fs.statSync(path);\n"
+            "    return { lastModified: st.mtimeMs, size: st.size, text: async () => text }; },\n"
+            "  async createWritable() {\n"
+            "    const swap = path + '.crswap';\n"
+            "    fs.writeFileSync(swap, '');\n"
+            "    return { async write(t) { fs.writeFileSync(swap, t); agent('write'); },\n"
+            "             async close() { fs.renameSync(swap, path); agent('close'); },\n"
+            "             async abort() { fs.unlinkSync(swap); aborted++; } };\n"
+            "  },\n"
+            "};\n"
+            "(async () => {\n"
+            "  const store = fileStore(handle), base = await store.load();\n"
+            "  let saved, error = null;\n"
+            "  try { saved = (await store.save(ops.note('DV-03', 'Human note'), base)).board; } catch (e) { error = e.message; }\n"
+            "  const notes = (b) => b.tasks.flatMap((t) => t.notes.map((n) => `${t.id} ${n.by}: ${n.text}`));\n"
+            "  const file = fs.readFileSync(path, 'utf8'), polled = await store.poll();\n"
+            "  process.stdout.write(JSON.stringify({ error, aborted, saved: saved ? notes(saved) : null, file: notes(normalize(JSON.parse(file))),\n"
+            "    canonical: serialize(normalize(JSON.parse(file))) === file, polled: polled && notes(polled.board),\n"
+            "    swap: fs.existsSync(path + '.crswap') }));\n"
+            "})();"
+        )
+        stdin = json.dumps([self.path, sys.executable, SCRIPT, writes])
+        sections = [("function fileStore(", "function memoryStore("), ("function mustFind(", "\n// ----")]
+        return json.loads(run_html_js(self, code, stdin, sections))
+
+    def test_a_save_without_agents_writes_once(self):
+        out = self.save_with_agent({})
+        self.assertEqual(out, {"error": None, "aborted": 0, "saved": ["DV-03 human: Human note"], "file": ["DV-03 human: Human note"],
+                               "canonical": True, "polled": None, "swap": False})
+
+    def test_an_agent_write_during_a_save_is_kept(self):
+        out = self.save_with_agent({"write": ["Agent note"]})
+        both = ["DV-02 agent: Agent note", "DV-03 human: Human note"]
+        self.assertEqual(out, {"error": None, "aborted": 1, "saved": both, "file": both, "canonical": True, "polled": None, "swap": False})
+
+    def test_an_agent_write_right_after_a_save_shows_at_the_next_poll(self):
+        out = self.save_with_agent({"close": ["Agent note"]})
+        both = ["DV-02 agent: Agent note", "DV-03 human: Human note"]
+        self.assertEqual(out, {"error": None, "aborted": 0, "saved": ["DV-03 human: Human note"], "file": both, "canonical": True,
+                               "polled": both, "swap": False})
+
+    def test_a_save_gives_up_when_the_file_keeps_changing(self):
+        notes = [f"Agent note {i}" for i in range(6)]
+        out = self.save_with_agent({"write": list(notes)})
+        agent = [f"DV-02 agent: {n}" for n in notes]
+        self.assertEqual(out, {"error": "the board kept changing; try again", "aborted": 6, "saved": None, "file": agent,
+                               "canonical": True, "polled": agent, "swap": False})
+
+
+class LeaveTests(unittest.TestCase):
+    """Leaving the page asks first only while something would be lost."""
+
+    def test_unsaved_work(self):
+        code = (
+            "let fields = [], pending = 0, store, board = normalize(input), IX = indexOf(board);\n"
+            "globalThis.document = { querySelector: () => null, querySelectorAll: () => fields };\n"
+            "const get = (id) => IX.get(key(id)), ui = {}, drafts = { note: new Map(), back: new Map() };\n"
+            "const reset = () => {\n"
+            "  fields = []; pending = 0; store = { kind: 'server' };\n"
+            "  Object.assign(ui, { selected: 'A-01', editingDesc: false, editingNote: null });\n"
+            "  Object.assign(drafts, { desc: null, noteEdit: null, title: null, boardTitle: null });\n"
+            "  drafts.note.clear(); drafts.back.clear();\n"
+            "};\n"
+            "const cases = {\n"
+            "  clean: () => {},\n"
+            "  pendingSave: () => { pending = 1; },\n"
+            "  memoryBoard: () => { store = { kind: 'memory', dirty: false }; },\n"
+            "  memoryBoardChanged: () => { store = { kind: 'memory', dirty: true }; },\n"
+            "  snapshot: () => { store = { kind: 'snapshot', readOnly: true }; drafts.note.set('A-01', 'typed'); },\n"
+            "  note: () => { drafts.note.set('A-01', 'typed'); },\n"
+            "  blankNote: () => { drafts.note.set('A-01', '  '); },\n"
+            "  noteOnRemovedTask: () => { drafts.note.set('A-09', 'typed'); },\n"
+            "  descEditorUnchanged: () => { ui.editingDesc = true; drafts.desc = 'Old '; },\n"
+            "  descEditorChanged: () => { ui.editingDesc = true; drafts.desc = 'New'; },\n"
+            "  noteEditorChanged: () => { ui.editingNote = { text: 'Was' }; drafts.noteEdit = 'Is'; },\n"
+            "  givenBack: () => { drafts.back.set(key('A-01'), [() => {}]); },\n"
+            "  givenBackRemovedTask: () => { drafts.back.set(key('A-09'), [() => {}]); },\n"
+            "  dialogFilled: () => { fields = [{ value: 'A task' }]; },\n"
+            "  dialogEmpty: () => { fields = [{ value: ' ' }]; },\n"
+            "};\n"
+            "const out = {};\n"
+            "for (const [name, set] of Object.entries(cases)) { reset(); set(); out[name] = unsaved(); }\n"
+            "process.stdout.write(JSON.stringify(out));"
+        )
+        board = {"kanvas": 1, "title": "", "groups": [], "tasks": [task("A-01", desc="Old")]}
+        out = json.loads(run_html_js(self, code, json.dumps(board), [("function unsaved(", "async function boot(")]))
+        asks = {name for name, value in out.items() if value}
+        self.assertEqual(asks, {"pendingSave", "memoryBoardChanged", "note", "descEditorChanged", "noteEditorChanged", "givenBack", "dialogFilled"})
+
 
 class ChecklistTests(unittest.TestCase):
     """A checkbox ticked in a rendered description changes the item it shows and nothing else."""
@@ -296,11 +555,23 @@ class ChecklistTests(unittest.TestCase):
         "- [ ]",
         "- not a task [ ]",
         "- [ ] plain",
+        "| a | - [ ] in a table |",
+        "|---|---|",
+        "- [x] after a table",
+        "  - [ ] child",
+        "    - [x] grandchild",
+        "1. [ ] numbered after bullets",
+        ">>>>>> - [x] six quotes deep",
+        ">>>>>>> - [ ] seven quotes deep, so text",
+        "- [ ]\u2028a line separator after the box",
+        "-\u2029[x] separators\u2028inside",
     ]
     DESC = "\n".join(LINES)
     # The line of each item in DESC, in the order the boxes are rendered.
     ITEMS = [(1, "plain", False), (2, "nested continued", True), (4, "star, upper case", True), (5, "plus", False),
-             (6, "numbered", False), (7, "numbered with a parenthesis", True), (8, "quoted", False), (14, "plain", False)]
+             (6, "numbered", False), (7, "numbered with a parenthesis", True), (8, "quoted", False), (14, "plain", False),
+             (17, "after a table", True), (18, "child", False), (19, "grandchild", True), (20, "numbered after bullets", False),
+             (21, "six quotes deep", True), (23, "a line separator after the box", False), (24, "separators\u2028inside", True)]
 
     def run_js(self, code, desc=DESC):
         code = "const get = () => null;\n" + code
@@ -310,6 +581,10 @@ class ChecklistTests(unittest.TestCase):
         out = self.run_js("process.stdout.write(JSON.stringify([taskItems(input).map((x) => [x.text, x.checked]),\n"
                           "  [...markdown(input).matchAll(/<input type=\"checkbox\" disabled( checked)?>/g)].map((m) => !!m[1])]));")
         self.assertEqual(out, [[[text, checked] for _, text, checked in self.ITEMS], [checked for *_, checked in self.ITEMS]])
+
+    def test_a_quote_ten_thousand_deep_holds_no_boxes(self):
+        out = self.run_js("process.stdout.write(JSON.stringify([taskItems(input), markdown(input).includes('checkbox')]));", ">" * 10000 + " - [ ] deep")
+        self.assertEqual(out, [[], False])
 
     def test_toggling_changes_only_the_line_of_that_item(self):
         out = self.run_js("const items = taskItems(input);\n"
@@ -328,6 +603,545 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(out, [None, None, True, True, self.DESC.replace("+ [ ] plus", "+ [x] plus").replace("\n", "\r\n")])
 
 
+def link(href, text):
+    return f'<a href="{href}" target="_blank" rel="noopener noreferrer">{text}</a>'
+
+
+def ref(text, tid="RS-02"):
+    return f'<a class="tref" href="#{tid}" data-ref="{tid}">{text}</a>'
+
+
+def table(head, *rows, align=()):
+    def row(cells, tag):
+        out = ""
+        for cell, a in zip(cells, list(align) + [None] * len(cells)):
+            attr = f' style="text-align: {a}"' if a else ""
+            out += f"<{tag}{attr}>{cell}</{tag}>"
+        return f"<tr>{out}</tr>"
+    body = f"<tbody>{''.join(row(r, 'td') for r in rows)}</tbody>" if rows else ""
+    return f'<div class="table"><table><thead>{row(head, "th")}</thead>{body}</table></div>'
+
+
+class MarkdownTests(unittest.TestCase):
+    """markdown() turns text from agents into HTML: the subset it knows, with everything else escaped."""
+
+    def check(self, cases):
+        code = ("const tasks = new Map([['RS-02', { id: 'RS-02' }]]);\n"
+                "const get = (id) => tasks.get(key(id));\n"
+                "process.stdout.write(JSON.stringify(input.map((src) => markdown(src))));")
+        out = json.loads(run_html_js(self, code, json.dumps([src for src, _ in cases]), [("function inlineMd(", "\n// ----")]))
+        for (src, expected), html in zip(cases, out):
+            with self.subTest(src=src):
+                self.assertEqual(html, expected)
+
+    def test_task_ids_link_outside_link_text_only(self):
+        self.check([
+            ("RS-02 and rs-02, XX-99 is unknown", f"<p>{ref('RS-02')} and {ref('rs-02')}, XX-99 is unknown</p>"),
+            ("[see RS-02](https://example.com)", f"<p>{link('https://example.com', 'see RS-02')}</p>"),
+            ("RS-02, [see RS-02](https://example.com) and RS-02",
+             f"<p>{ref('RS-02')}, {link('https://example.com', 'see RS-02')} and {ref('RS-02')}</p>"),
+            ("[**RS-02** first](mailto:a@example.com)", f"<p>{link('mailto:a@example.com', '<strong>RS-02</strong> first')}</p>"),
+            ("[RS-02](https://example.com/RS-02) https://example.com/RS-02",
+             f"<p>{link('https://example.com/RS-02', 'RS-02')} {link('https://example.com/RS-02', 'https://example.com/RS-02')}</p>"),
+            # A refused URL leaves plain text, where a task ID is a reference again.
+            ("[see RS-02](#RS-02) [x](vbscript:RS-02)", f"<p>see {ref('RS-02')} x</p>"),
+            ("`RS-02` *RS-02*", f"<p><code>RS-02</code> <em>{ref('RS-02')}</em></p>"),
+        ])
+
+    def test_urls_hold_balanced_parentheses(self):
+        foo, nested = "https://en.wikipedia.org/wiki/Foo_(bar)", "https://example.com/a_(b_(c))_d"
+        self.check([
+            (f"[spec]({foo})", f"<p>{link(foo, 'spec')}</p>"),
+            (f"[spec]({nested}) {nested}", f"<p>{link(nested, 'spec')} {link(nested, nested)}</p>"),
+            (f"{foo}, ({foo}) and ({foo}).", f"<p>{link(foo, foo)}, ({link(foo, foo)}) and ({link(foo, foo)}).</p>"),
+            ("(see [spec](https://example.com/a)) (see https://example.com/a)",
+             f"<p>(see {link('https://example.com/a', 'spec')}) (see {link('https://example.com/a', 'https://example.com/a')})</p>"),
+            ("[RS-02 notes](https://example.com/RS-02_(draft))", f"<p>{link('https://example.com/RS-02_(draft)', 'RS-02 notes')}</p>"),
+            # Unbalanced: a link needs its closing parenthesis, and a bare URL ends before one that closes nothing.
+            ("[spec](https://example.com/a_(b) and more",
+             f"<p>[spec]({link('https://example.com/a_(b)', 'https://example.com/a_(b)')} and more</p>"),
+            ("[spec](https://example.com/a_b)) https://example.com/a)b https://example.com/a_(b c",
+             f"<p>{link('https://example.com/a_b', 'spec')}) {link('https://example.com/a', 'https://example.com/a')})b "
+             f"{link('https://example.com/a_', 'https://example.com/a_')}(b c</p>"),
+            ("[spec](https://example.com/a(b c)", f"<p>[spec]({link('https://example.com/a', 'https://example.com/a')}(b c)</p>"),
+            # The rest is as before.
+            ('Go to https://example.com/a.b?q=1&r=2. "https://example.com/x"!',
+             f"<p>Go to {link('https://example.com/a.b?q=1&amp;r=2', 'https://example.com/a.b?q=1&amp;r=2')}. "
+             f"&quot;{link('https://example.com/x', 'https://example.com/x')}&quot;!</p>"),
+            ("[js link](javascript:alert(1)) and [ok](https://example.com)", f"<p>js link and {link('https://example.com', 'ok')}</p>"),
+            ('[x](https://example.com/"onmouseover="alert(1))',
+             f"<p>{link('https://example.com/&quot;onmouseover=&quot;alert(1)', 'x')}</p>"),
+            ("[d](data:text/html,<script>alert(1)</script>) https://x", "<p>d https://x</p>"),
+        ])
+
+    def test_tables(self):
+        one = table(["a"], ["1"])
+        self.check([
+            ("| Left | Center | Right | None |\n|:-----|:------:|------:|------|\n| a | b | c | d |",
+             '<div class="table"><table><thead><tr><th style="text-align: left">Left</th><th style="text-align: center">Center</th>'
+             '<th style="text-align: right">Right</th><th>None</th></tr></thead><tbody><tr><td style="text-align: left">a</td>'
+             '<td style="text-align: center">b</td><td style="text-align: right">c</td><td>d</td></tr></tbody></table></div>'),
+            # Outer pipes are optional, \| is a pipe inside a cell, code included, and cells hold inline Markdown.
+            ("Name | Note\n--- | :-:\n`a\\|b` | x \\| y, **RS-02**",
+             table(["Name", "Note"], ["<code>a|b</code>", f"x | y, <strong>{ref('RS-02')}</strong>"], align=[None, "center"])),
+            # Missing cells are empty and extra ones dropped.
+            ("| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |\n|| 2 |", table(["a", "b"], ["1", ""], ["1", "2"], ["", "2"])),
+            ("| a |\n|---|", table(["a"])),
+            # A table may follow a paragraph line or a list, and ends at a line without a pipe or a new block.
+            ("Results:\n| a |\n|---|\n| 1 |\nafter\n\n| b |\n|---|\n\n| 2 |", f"<p>Results:</p>{one}<p>after</p>{table(['b'])}<p>| 2 |</p>"),
+            ("- item\n| a |\n|---|\n| 1 |\n- next", f"<ul><li>item</li></ul>{one}<ul><li>next</li></ul>"),
+            ("1. one\n\n| a |\n|---|\n| 1 |\n2. two\n> | a |\n> |---|\n> | 1 |",
+             f'<ol><li>one</li></ol>{one}<ol><li>two</li></ol><blockquote>{one}</blockquote>'),
+            # Not tables: cell counts differ, no row of dashes, or dashes with no pipe.
+            ("| a | b |\n|---|\n\na | b\nc | d\n\n| a |\n| - - |\n\nTitle\n---",
+             "<p>| a | b |<br>|---|</p><p>a | b<br>c | d</p><p>| a |<br>| - - |</p><p>Title</p><hr>"),
+            ("| <script>alert(1)</script> | [x](javascript:alert(1)) |\n|:-:|---|\n| <img src=x onerror=alert(1)> | ![y](https://example.com/\"onerror=\"alert(1)) |",
+             table(["&lt;script&gt;alert(1)&lt;/script&gt;", "x"],
+                   ["&lt;img src=x onerror=alert(1)&gt;", link("https://example.com/&quot;onerror=&quot;alert(1)", "y")], align=["center"])),
+        ])
+
+    def test_nested_lists(self):
+        box, ticked = '<li class="task"><input type="checkbox" disabled>', '<li class="task"><input type="checkbox" disabled checked>'
+        self.check([
+            ("- a\n  - b\n    - c\n  - d\n- e", "<ul><li>a<ul><li>b<ul><li>c</li></ul></li><li>d</li></ul></li><li>e</li></ul>"),
+            ("1. one\n   - sub\n   - sub two\n2. two\n   1. deep",
+             "<ol><li>one<ul><li>sub</li><li>sub two</li></ul></li><li>two<ol><li>deep</li></ol></li></ol>"),
+            # A switch between bullets and numbers starts a new list.
+            ("- a\n- b\n1. c\n2) d\n* e", "<ul><li>a</li><li>b</li></ul><ol><li>c</li><li>d</li></ol><ul><li>e</li></ul>"),
+            ("- [ ] parent\n  - [x] child\n    with more\n  - plain child, RS-02\n- [X] next",
+             f"<ul>{box} parent<ul>{ticked} child with more</li><li>plain child, {ref('RS-02')}</li></ul></li>{ticked} next</li></ul>"),
+            # Two columns deeper make a child; in between, an item joins the deeper list. A tab counts as four.
+            ("- a\n - b\n    - c\n  - d\n\t- e", "<ul><li>a</li><li>b<ul><li>c</li><li>d</li><li>e</li></ul></li></ul>"),
+            ("  - a\n- b", "<ul><li>a</li><li>b</li></ul>"),
+            ("Steps:\n1. a\n2. b\n\n- c\n\n- d", "<p>Steps:</p><ol><li>a</li><li>b</li></ol><ul><li>c</li></ul><ul><li>d</li></ul>"),
+            ("> - a\n>   - b", "<blockquote><ul><li>a<ul><li>b</li></ul></li></ul></blockquote>"),
+            ("\n".join(" " * 2 * k + f"- {k}" for k in range(8)),
+             "<ul><li>0<ul><li>1<ul><li>2<ul><li>3<ul><li>4<ul><li>5</li><li>6</li><li>7</li></ul></li></ul></li></ul></li></ul></li></ul></li></ul>"),
+        ])
+
+    def test_quotes_nest_six_deep_at_most(self):
+        six = lambda html: "<blockquote>" * 6 + html + "</blockquote>" * 6
+        self.check([
+            ("> one\n> two **RS-02**\n>\n>no space", f"<blockquote><p>one<br>two <strong>{ref('RS-02')}</strong></p><p>no space</p></blockquote>"),
+            ("before\n> # Title\n> ```\n> <b>\n> ```\n> 1. one\n> ---\nafter",
+             "<p>before</p><blockquote><h3>Title</h3><pre><code>&lt;b&gt;</code></pre><ol><li>one</li></ol><hr></blockquote><p>after</p>"),
+            ("> a\n>> b\n> > c\n> d", "<blockquote><p>a</p><blockquote><p>b<br>c</p></blockquote><p>d</p></blockquote>"),
+            (">>>>>> six\n>>>>>> - [x] box", six('<p>six</p><ul><li class="task"><input type="checkbox" disabled checked> box</li></ul>')),
+            # Deeper markers are text, in the paragraph they stand in.
+            ("> > > > > > > seven\n>>>>>>>> - [ ] eight, RS-02", six(f"<p>&gt; seven<br>&gt;&gt; - [ ] eight, {ref('RS-02')}</p>")),
+            (">" * 10000 + " deep", six("<p>" + "&gt;" * 9994 + " deep</p>")),
+            ("> " * 10000 + "deep", six("<p>" + "&gt; " * 9994 + "deep</p>")),
+        ])
+
+    def test_images_are_plain_links(self):
+        self.check([
+            ("![img](https://example.com/x.png)", f"<p>{link('https://example.com/x.png', 'img')}</p>"),
+            ("![](https://example.com/x_y_z.png) and [](https://example.com)",
+             f"<p>{link('https://example.com/x_y_z.png', 'https://example.com/x_y_z.png')} and {link('https://example.com', 'https://example.com')}</p>"),
+            ("![see RS-02](https://example.com/a_(b).png)", f"<p>{link('https://example.com/a_(b).png', 'see RS-02')}</p>"),
+            ("![x](javascript:alert(1)) ![RS-02](x.png) ![](data:image/png;base64,AAAA)", f"<p>x {ref('RS-02')} data:image/png;base64,AAAA</p>"),
+            ("![<img src=x onerror=alert(1)>](https://example.com/x.png)",
+             f"<p>{link('https://example.com/x.png', '&lt;img src=x onerror=alert(1)&gt;')}</p>"),
+        ])
+
+    def test_the_stress_boards_hostile_description(self):
+        desc = ("<script>alert(1)</script>\n\n[js link](javascript:alert(1)) and [ok](https://example.com)\n\n"
+                "| a | b |\n|---|---|\n| 1 | 2 |\n\n![img](https://example.com/x.png)\n\n- [ ] first\n- [x] second\n  - nested item\n\n"
+                "1. one\n2. two\n\n# Heading one\n\n> quote with RS-02 reference")
+        self.check([(desc, (
+            "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>"
+            f"<p>js link and {link('https://example.com', 'ok')}</p>"
+            + table(["a", "b"], ["1", "2"])
+            + f"<p>{link('https://example.com/x.png', 'img')}</p>"
+            '<ul><li class="task"><input type="checkbox" disabled> first</li>'
+            '<li class="task"><input type="checkbox" disabled checked> second<ul><li>nested item</li></ul></li></ul>'
+            "<ol><li>one</li><li>two</li></ol><h3>Heading one</h3>"
+            f"<blockquote><p>quote with {ref('RS-02')} reference</p></blockquote>"))])
+
+    def test_html_stays_escaped(self):
+        self.check([
+            ("<script>alert(1)</script>", "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>"),
+            ("<img src=x onerror=alert(1)> **bold** `code`", "<p>&lt;img src=x onerror=alert(1)&gt; <strong>bold</strong> <code>code</code></p>"),
+            ("# <i>RS-02</i>", f"<h3>&lt;i&gt;{ref('RS-02')}&lt;/i&gt;</h3>"),
+            ("```\n<b>'x'</b>\n```", "<pre><code>&lt;b&gt;&#39;x&#39;&lt;/b&gt;</code></pre>"),
+            ('[<b>RS-02</b>](https://example.com/"><script>)',
+             f"<p>{link('https://example.com/&quot;&gt;&lt;script&gt;', '&lt;b&gt;RS-02&lt;/b&gt;')}</p>"),
+            ('https://example.com/a"onmouseover="x', f"<p>{link('https://example.com/a&quot;onmouseover=&quot;x', 'https://example.com/a&quot;onmouseover=&quot;x')}</p>"),
+            ("[a](javascript:x) [b](JavaScript:x) [c](data:text/html,x) [d](//example.com)", "<p>a b c d</p>"),
+        ])
+
+    def test_emphasis_and_links(self):
+        e = "https://e.com"
+        self.check([
+            ("*a* _b_ **c** ~~d~~", "<p><em>a</em> <em>b</em> <strong>c</strong> <del>d</del></p>"),
+            ("**a *b* c** and *a **b** c*", "<p><strong>a <em>b</em> c</strong> and <em>a <strong>b</strong> c</em></p>"),
+            # Not inside words. Emphasis runs to the first closer after its opener, and an opener without one is text.
+            ("a*b*c, snake_case_name and 2*3*4", "<p>a*b*c, snake_case_name and 2*3*4</p>"),
+            ("*a *b c* and _a _b c_", "<p><em>a *b c</em> and <em>a _b c</em></p>"),
+            ("x ** y* and * a* and *a *", "<p>x <em>* y</em> and * a* and <em>a </em></p>"),
+            ("*a* *b _c_ _d", "<p><em>a</em> *b <em>c</em> _d</p>"),
+            # A link's text runs from its "[" to the first "]" after it.
+            (f"[a [b]({e}) and [x] [y]({e}) [z]", f"<p>{link(e, 'a [b')} and [x] {link(e, 'y')} [z]</p>"),
+            (f"![x]({e}) !![y]({e}) [![z]({e})", f"<p>{link(e, 'x')} !{link(e, 'y')} {link(e, '![z')}</p>"),
+            (f"[`a`]({e}) and [a `b]({e})` c", f"<p>{link(e, '`a`')} and {link(e, 'a `b')}` c</p>"),
+            (f"`[`[b]({e}) `a` and [c]({e})`", f"<p><code>[</code>{link(e, 'b')} <code>a</code> and {link(e, 'c')}`</p>"),
+            (f"[a]]]({e}) [a] ({e})", f"<p>[a]]]({link(e, e)}) [a] ({link(e, e)})</p>"),
+            (f"[*a* RS-02]({e}) [a](javascript:x) [RS-02](#x)", f"<p>{link(e, '<em>a</em> RS-02')} a {ref('RS-02')}</p>"),
+        ])
+
+    def test_long_lines_of_unclosed_openers_render_quickly(self):
+        # 100 KB of each, then the end of the line: [unit, end, the HTML of the end].
+        cases = [[" *a", "", ""], [" _a", "", ""], ["(*a", "", ""], ["[", "", ""], ["[a", "", ""], ["![", "", ""], [" *a _a [a", "", ""],
+                 ["[ *a", "", ""], ["[a", "]", "]"], [" *a", " _b_", " <em>b</em>"], [" _a", " [c](https://e.com)", f" {link('https://e.com', 'c')}"]]
+        code = ("const get = () => null;\n"
+                "process.stdout.write(JSON.stringify(input.map(([unit, end, endHtml]) => {\n"
+                "  const head = unit.repeat(Math.ceil(100000 / unit.length)), t = process.hrtime.bigint(), html = markdown(head + end);\n"
+                "  return [Number(process.hrtime.bigint() - t) / 1e6, html === `<p>${escHtml(head)}${endHtml}</p>`];\n"
+                "})));")
+        out = json.loads(run_html_js(self, code, json.dumps(cases), [("function inlineMd(", "\n// ----")]))
+        for (unit, end, _), (ms, same) in zip(cases, out):
+            with self.subTest(unit=unit, end=end):
+                self.assertTrue(same)
+                self.assertLess(ms, 1000)
+
+    def test_line_separators_are_part_of_their_line(self):
+        # U+2028 and U+2029 end no line, item or span. Like a no-break space, they are whitespace and stay in the text.
+        L, P = "\u2028", "\u2029"
+        box, ticked = '<li class="task"><input type="checkbox" disabled>', '<li class="task"><input type="checkbox" disabled checked>'
+        cases = [
+            (f"- a{L}b\n- [ ] c{P}d\n-{L}[x]{P}e\n- {L}\n  {L}more", f"<ul><li>a{L}b</li>{box} c{P}d</li>{ticked} e</li><li> more</li></ul>"),
+            (f"1.{P}one\n   - [ ]{L}sub", f"<ol><li>one<ul>{box} sub</li></ul></li></ol>"),
+            (f"# a{L}b\n#{P}c", f"<h3>a{L}b</h3><h3>c</h3>"),
+            (f"*a{L}b* _c{P}d_ **e{L}f** ~~g{P}h~~ *{L}i*", f"<p><em>a{L}b</em> <em>c{P}d</em> <strong>e{L}f</strong> <del>g{P}h</del> *{L}i*</p>"),
+            (f"[a{L}b](https://e.com) https://e.com/c{L}d", f"<p>{link('https://e.com', f'a{L}b')} {link('https://e.com/c', 'https://e.com/c')}{L}d</p>"),
+            (f">{L}- [x] a\n> b{P}c", f"<blockquote><ul>{ticked} a</li></ul><p>b{P}c</p></blockquote>"),
+            (f"| a{L} | b |\n|---|---{P}|\n| 1 | {L} |", table(["a", "b"], ["1", ""])),
+            (f"```\n- {L}a\n```\na\n{L}{P}\nb{L}\n---{L}", f"<pre><code>- {L}a</code></pre><p>a</p><p>b{L}</p><hr>"),
+        ]
+        self.check(cases)
+        code = ("const get = () => null, nbsp = (s) => s.replace(/[\\u2028\\u2029]/g, '\\u00a0');\n"
+                "process.stdout.write(JSON.stringify(input.map((src) => [markdown(nbsp(src)) === nbsp(markdown(src)),\n"
+                "  JSON.stringify(taskItems(nbsp(src))) === nbsp(JSON.stringify(taskItems(src)))])));")
+        out = json.loads(run_html_js(self, code, json.dumps([src for src, _ in cases]), [("function inlineMd(", "\n// ----")]))
+        self.assertEqual(out, [[True, True]] * len(cases))
+
+    def test_long_texts_with_line_separators_render_quickly(self):
+        # 100 KB of each, as one description: [unit, the boxes in one unit].
+        cases = [["- \u2028a\n", 0], ["- [ ] a\u2028b\n", 1], ["-\u2029[x]\u2028a\n", 1], ["> \u2028- [ ] a\n", 1], ["# \u2028a\n", 0],
+                 ["- a\n  \u2028b\n", 0], [" *a\u2028", 0], ["[a\u2029", 0], ["\u2028\n", 0]]
+        code = ("const get = () => null;\n"
+                "process.stdout.write(JSON.stringify(input.map(([unit, boxes]) => {\n"
+                "  const n = Math.ceil(100000 / unit.length), src = unit.repeat(n), t = process.hrtime.bigint();\n"
+                "  const html = markdown(src), items = taskItems(src), ms = Number(process.hrtime.bigint() - t) / 1e6;\n"
+                "  return [ms, items.length === boxes * n && (html.match(/<input type=\"checkbox\"/g) || []).length === items.length];\n"
+                "})));")
+        out = json.loads(run_html_js(self, code, json.dumps(cases), [("function inlineMd(", "\n// ----")]))
+        for (unit, _), (ms, found) in zip(cases, out):
+            with self.subTest(unit=unit):
+                self.assertTrue(found)
+                self.assertLess(ms, 1000)
+
+    def test_urls_of_many_megabytes_stay_text(self):
+        # From about 8 MB a URL overflows the stack of the regex engine. The page stays up and keeps all the text.
+        # [source, its text without the markup, how its HTML starts and ends]
+        cases = [["see URL and *b*", "see URL and b", "<p>see ", " and <em>b</em></p>"],
+                 ["[a](https://e.com) URL *b*\n\n*c*", "a URL bc", f"<p>{link('https://e.com', 'a')} ", " <em>b</em></p><p><em>c</em></p>"]]
+        code = ("const get = () => null, url = 'https://e.com/' + 'a'.repeat(16 << 20);\n"
+                "process.stdout.write(JSON.stringify(input.map(([src, text, head, tail]) => {\n"
+                "  const html = markdown(src.replace('URL', url));\n"
+                "  return html.startsWith(head) && html.endsWith(tail) && html.replace(/<[^>]*>/g, '') === text.replace('URL', url);\n"
+                "})));")
+        out = json.loads(run_html_js(self, code, json.dumps(cases), [("function inlineMd(", "\n// ----")]))
+        self.assertEqual(out, [True, True])
+
+
+class BoardViewTests(unittest.TestCase):
+    """The board view on phones, where one column fills the screen."""
+
+    def run_js(self, code, data):
+        return json.loads(run_html_js(self, code, json.dumps(data), [("function columnInView(", "\n// The row of states")]))
+
+    def test_the_row_of_states_marks_the_column_that_fills_most_of_the_screen(self):
+        # Six 340px columns 10px apart on a 390px phone, as [left, right] on screen for a scroll position.
+        spans = lambda scroll: [[10 + 350 * i - scroll, 350 + 350 * i - scroll] for i in range(6)]
+        cases = [
+            [spans(0), 0, 390, False],     # at rest on the first column
+            [spans(150), 0, 390, False],   # swiped less than halfway
+            [spans(190), 0, 390, False],   # past halfway, before the scroll settles
+            [spans(1400), 0, 390, False],  # Review, with a sliver of Done
+            [spans(1720), 0, 390, True],   # scrolled to the end
+            # A phone held sideways: two columns fit, so the first of them is marked, until the end, which marks the last
+            [spans(700), 0, 844, False],
+            [spans(1266), 0, 844, True],
+            # The board view hidden, and a board without columns
+            [[[0, 0], [0, 0]], 0, 0, False],
+            [[], 0, 390, True],
+        ]
+        out = self.run_js("process.stdout.write(JSON.stringify(input.map((c) => columnInView(...c))));", cases)
+        self.assertEqual(out, [0, 0, 1, 4, 5, 2, 5, -1, -1])
+
+    def test_cards_dropped_by_mouse_or_touch_move_and_are_refused_alike(self):
+        """Both drop through dropCard. The page shows `page`, and the save replays the move on `latest`."""
+        page = {"kanvas": 1, "title": "", "groups": [], "tasks": [
+            task("P-01", "proposed"), task("P-02", "proposed"), task("T-01"), task("D-01", "doing"), task("R-01", "review")]}
+        latest = json.loads(json.dumps(page))
+        latest["tasks"][1]["desc"] = "Revised by an agent"
+        latest["tasks"][2]["state"] = "doing"
+        drops = [["P-01", "blocked"], ["P-01", "proposed"], ["D-01", "done"], ["R-01", "todo"], ["T-01", "blocked"],
+                 ["T-01", "review"], ["P-02", "todo"], ["X-09", "done"]]
+        code = ("let board = normalize(input.page), id = null;\n"
+                "const get = (x) => board.tasks.find((t) => same(t.id, x));\n"
+                "const out = [];\n"
+                "const commit = (fn) => { const b = normalize(clone(input.latest));\n"
+                "  try { fn(b); out.push(b.tasks.find((t) => same(t.id, id)).state); } catch (e) { out.push(e.message); } };\n"
+                "for (const [x, s] of input.drops) { id = x; const n = out.length; dropCard(x, s); if (out.length === n) out.push(null); }\n"
+                "process.stdout.write(JSON.stringify(out));")
+        sections = [("function mustFind(", "\n// ----"), ("function dropCard(", "\n// The column that takes up most")]
+        out = json.loads(run_html_js(self, code, json.dumps({"page": page, "latest": latest, "drops": drops}), sections))
+        self.assertEqual(out, [
+            "todo", None, "done", "todo", None,  # Blocked stands for To do, and a card dropped where it is stays
+            "T-01 is in Doing now, not To do",  # an agent started it meanwhile
+            "P-02 was revised since you opened it; read the new version first",
+            None,
+        ])
+
+
+class ReviewFlowTests(unittest.TestCase):
+    """Marking the open task done or sending it back in the board view opens the next task in review."""
+
+    FILTERS = [("const get = (id) =>", "\nfunction setBoard("), ("function matches(", "\nfunction render()")]
+    STATE = "let board = null, IX = new Map(), COVER = new Map();\nconst ui = { view: 'board', selected: null, search: '', states: new Set(), groups: new Set() };\n"
+
+    @staticmethod
+    def board(*tasks):
+        return {"kanvas": 1, "title": "", "groups": [{"id": "BE", "name": "Backend"}, {"id": "FE", "name": "Frontend"}], "tasks": list(tasks)}
+
+    def test_the_next_task_follows_the_board_view_order_and_filters(self):
+        board = self.board(
+            task("FE-01", "review", "FE"), task("BE-01", "review", "BE"), task("BE-02", "done", "BE"),
+            task("FE-02", "review", "FE", title="Forecast chart"), task("BE-03", "review", "BE"), task("X-01", "review", "XX"),
+            task("G-01", "review"), task("BE-04", "review", "BE", notes=[{"at": "", "by": "claude", "text": "Reads the forecast cache"}]),
+            task("FE-03", "doing", "FE"))
+        # The task reviewed, the filters, and what else changed by the time the change was saved
+        cases = [
+            ["BE-01", {}, {}],                           # the done BE-02 is skipped
+            ["BE-04", {}, {}],                           # on to the next group
+            ["FE-02", {}, {}],                           # an unknown group comes after the groups, with the ungrouped tasks
+            ["X-01", {}, {}],
+            ["G-01", {}, {}],                            # round to the first
+            ["FE-02", {"groups": ["FE"]}, {}],           # round, within the group
+            ["FE-02", {"groups": ["FE"]}, {"FE-01": "done"}],
+            ["BE-03", {"groups": ["FE"]}, {}],           # opened from elsewhere: its place in the order still counts
+            ["X-01", {"groups": [""]}, {}],              # No group holds the tasks of unknown groups
+            ["G-01", {"groups": [""]}, {}],
+            ["FE-02", {"search": "forecast"}, {}],       # BE-04 matches by its note
+            ["BE-04", {"search": "FRONTEND"}, {}],       # and groups by their name
+            ["BE-01", {"states": ["review"]}, {}],       # the reviewed task no longer shows, and keeps its place
+            ["BE-01", {"states": ["doing"]}, {}],        # no Review column
+            ["BE-01", {}, {"BE-03": "done"}],            # moved on by YOLO meanwhile
+            ["FE-02", {}, {"FE-03": "review"}],          # finished by an agent meanwhile
+            ["BE-01", {}, {"BE-03": "done", "BE-04": "done", "FE-01": "done", "FE-02": "done", "X-01": "done", "G-01": "done"}],
+            ["ZZ-09", {}, {}],                           # deleted meanwhile: from the top
+        ]
+        code = self.STATE + (
+            "const out = [];\n"
+            "for (const [id, f, changes] of input.cases) {\n"
+            "  board = normalize(clone(input.board));\n"
+            "  for (const t of board.tasks) if (same(t.id, id)) t.state = 'done';\n"
+            "  for (const [x, s] of Object.entries(changes)) board.tasks.find((t) => t.id === x).state = s;\n"
+            "  IX = indexOf(board);\n"
+            "  Object.assign(ui, { groups: new Set(f.groups || []), states: new Set(f.states || []), search: f.search || '' });\n"
+            "  out.push(nextReview(board, id, matches)?.id ?? null);\n"
+            "}\n"
+            "process.stdout.write(JSON.stringify({ order: boardOrder(normalize(input.board)).map((t) => t.id), next: out }));")
+        out = json.loads(run_html_js(self, code, json.dumps({"board": board, "cases": cases}), self.FILTERS))
+        self.assertEqual(out["order"], ["BE-01", "BE-02", "BE-03", "BE-04", "FE-01", "FE-02", "FE-03", "X-01", "G-01"])
+        self.assertEqual(out["next"], [
+            "BE-03", "FE-01", "X-01", "G-01", "BE-01",
+            "FE-01", None, "FE-01",
+            "G-01", "X-01",
+            "BE-04", "FE-01",
+            "BE-03", None,
+            "BE-04", "FE-03", None, "BE-01",
+        ])
+
+    def test_moving_on_waits_for_the_save_and_reads_the_board_it_wrote(self):
+        board = self.board(task("FE-01", "review", "FE"), task("BE-01", "done", "BE"), task("FE-02", "review", "FE"),
+                           task("BE-03", "review", "BE"), task("FE-03", "doing", "FE"), task("BE-04", "review", "BE"), task("G-01"))
+        lost = "Kanvas stopped running or cannot be reached"
+        cases = [
+            {"id": "BE-03", "undo": True},
+            {"id": "BE-03", "undo": "FE-02"},  # Undo leaves the panel alone once the human opened another task
+            {"id": "BE-03", "agent": {"BE-04": "done", "FE-03": "review"}},
+            {"id": "BE-03", "fail": "server answered 500"},
+            {"id": "BE-03", "lost": lost},
+            {"id": "BE-03", "view": "graph"},
+            {"id": "BE-03", "open": "FE-01"},  # from the card menu, with another task open
+            {"id": "BE-03", "open": None},     # with no task open
+            {"id": "BE-03", "state": "todo", "note": "Sent back: Cap the retries"},
+            {"id": "BE-03", "agent": {"BE-04": "done", "FE-01": "done", "FE-02": "done"}},
+            {"id": "FE-02", "groups": ["FE"], "agent": {"FE-01": "done"}},
+            {"id": "FE-02", "groups": ["FE"], "agent": {"FE-01": "done", "BE-04": "done"}},
+            {"id": "BE-03", "during": {"selected": "FE-02"}},
+            {"id": "BE-03", "during": {"editingDesc": True}},
+        ]
+        code = self.STATE + (
+            "let confirmed, store, lost = null, pending = 0, writes = 0, saveQueue = Promise.resolve();\n"
+            "const edits = { undo: [], redo: [] }, toasts = [];\n"
+            "const setBoard = (b) => { board = b; IX = indexOf(b); }, render = () => {}, setSync = () => {};\n"
+            "const remember = (before, after) => { const e = { before, after }; edits.undo.push(e); return e; };\n"
+            "const forget = (e) => { edits.undo = edits.undo.filter((x) => x !== e); };\n"
+            "const select = (id) => { ui.selected = id; }, shownCard = () => null;\n"
+            "globalThis.document = { activeElement: null, createTextNode: (data) => ({ data }), querySelector: () => ({ contains: () => false }) };\n"
+            "h = (tag, props, ...kids) => ({ kids });\n"
+            "toast = (msg) => { const t = { msg, remove() { t.gone = true; } }; toasts.push(t); return t; };\n"
+            "const text = (t) => (typeof t.msg === 'string' ? t.msg : t.msg[0].kids[0].data) + (t.gone ? ' (taken away)' : '');\n"
+            "(async () => {\n"
+            "  const out = [];\n"
+            "  for (const c of input.cases) {\n"
+            "    board = normalize(clone(input.board)); confirmed = clone(board); IX = indexOf(board);\n"
+            "    edits.undo = []; toasts.length = 0; lost = c.lost || null;\n"
+            "    Object.assign(ui, { view: c.view || 'board', selected: 'open' in c ? c.open : c.id, editingDesc: false, editingNote: null, groups: new Set(c.groups || []) });\n"
+            "    const latest = normalize(clone(input.board));\n"
+            "    for (const [x, s] of Object.entries(c.agent || {})) latest.tasks.find((t) => t.id === x).state = s;\n"
+            "    store = { load: async () => clone(confirmed), save: async (fn) => {\n"
+            "      await new Promise((r) => setTimeout(r, 5));\n"
+            "      Object.assign(ui, c.during || {});\n"
+            "      if (c.fail) throw new Error(c.fail);\n"
+            "      const b = clone(latest); fn(b); return { board: b, base: latest };\n"
+            "    } };\n"
+            "    await review(get(c.id), c.state || 'done', c.note || '');\n"
+            "    await saveQueue;\n"
+            "    const t = get(c.id), r = { open: ui.selected, toasts: toasts.map(text), saved: [t.state, t.notes.map((n) => n.text)] };\n"
+            "    if (c.undo) { if (c.undo !== true) ui.selected = c.undo; const e = edits.undo[edits.undo.length - 1]; if (e.onUndo) e.onUndo(); r.afterUndo = ui.selected; }\n"
+            "    out.push(r);\n"
+            "  }\n"
+            "  process.stdout.write(JSON.stringify(out));\n"
+            "})();")
+        sections = [("async function commit(", "async function poll("), ("function undoable(", "\nfunction renderUndo("),
+                    ("const MOVE_WORDS =", "\n// What a change did"), ("function mustFind(", "\n// ----"),
+                    ("async function review(", "\nasync function askChanges(")] + self.FILTERS
+        out = json.loads(run_html_js(self, code, json.dumps({"board": board, "cases": cases}), sections))
+        done, kept = ["done", []], ["review", []]
+        self.assertEqual(out, [
+            {"open": "BE-04", "toasts": ["Marked BE-03 done. Next to review: BE-04."], "saved": done, "afterUndo": "BE-03"},
+            {"open": "BE-04", "toasts": ["Marked BE-03 done. Next to review: BE-04."], "saved": done, "afterUndo": "FE-02"},
+            # The next task comes from the board as saved, with the agents' changes
+            {"open": "FE-01", "toasts": ["Marked BE-03 done. Next to review: FE-01."], "saved": done},
+            # A failed save takes the toast away, and one refused at once never shows it
+            {"open": "BE-03", "toasts": ["Marked BE-03 done (taken away)", "Not saved: server answered 500"], "saved": kept},
+            {"open": "BE-03", "toasts": [f"Not saved: {lost}"], "saved": kept},
+            {"open": "BE-03", "toasts": ["Marked BE-03 done"], "saved": done},
+            {"open": "FE-01", "toasts": ["Marked BE-03 done"], "saved": done},
+            {"open": None, "toasts": ["Marked BE-03 done"], "saved": done},
+            {"open": "BE-04", "toasts": ["Sent BE-03 back. Next to review: BE-04."], "saved": ["todo", ["Sent back: Cap the retries"]]},
+            {"open": "BE-03", "toasts": ["Marked BE-03 done. No more tasks to review."], "saved": done},
+            {"open": "FE-02", "toasts": ["Marked FE-02 done. No more tasks to review in this view; 2 more are filtered out."], "saved": done},
+            {"open": "FE-02", "toasts": ["Marked FE-02 done. No more tasks to review in this view; 1 more is filtered out."], "saved": done},
+            # The human went on meanwhile: to another task, or to editing this one
+            {"open": "FE-02", "toasts": ["Marked BE-03 done"], "saved": done},
+            {"open": "BE-03", "toasts": ["Marked BE-03 done"], "saved": done},
+        ])
+
+
+class PanelPlaceTests(unittest.TestCase):
+    """Every way of opening a task goes through select(), and the panel shows each task from its top."""
+
+    def test_another_task_opens_at_the_top_and_the_same_one_keeps_the_readers_place(self):
+        board = {"kanvas": 1, "title": "", "groups": [], "tasks": [task("A-01", "doing"), task("B-01", "review")]}
+        # The panel is 300px tall, and each step reports the task on show and its scroll position, or None once closed
+        steps = [
+            ["open", "A-01"],                         # the panel opens at the top
+            ["scroll", 900], ["render"],              # an agent's change elsewhere, or a save, keeps the place
+            ["tall", 2600], ["render"],               # a note added below
+            ["tall", 1000], ["render"],               # a shorter task keeps what is left of the place
+            ["open", "B-01"],                         # another task starts at the top
+            ["scroll", 500], ["type"], ["render"],    # no rebuild while a text field has focus
+            ["leave"], ["render"],                    # and none moves it once the field lets go
+            ["type"], ["open", "A-01"],               # a link or the address bar opens another task while typing
+            ["scroll", 400], ["open", "A-01"],        # its own card, or a link to itself
+            ["close"], ["open", "A-01"],              # opened again
+            ["scroll", 300], ["close"], ["open", "B-01"],
+        ]
+        code = (
+            "const board = normalize(input.board), get = (id) => board.tasks.find((t) => same(t.id, id));\n"
+            "const ui = { selected: null, editingDesc: false, editingNote: null, panelStale: false };\n"
+            "const drafts = { title: null, desc: null, descBase: null, noteEdit: null, back: new Map() };\n"
+            "const phone = { matches: false }, history = { state: null, pushState() {}, replaceState() {}, back() {} }, location = { pathname: '/', search: '' };\n"
+            "const tall = { 'A-01': 2000, 'B-01': 1200 }, body = { matches: () => false };\n"
+            "const field = { matches: () => true, blur() { document.activeElement = body; } };\n"
+            "const panel = { hidden: true, dataset: {}, height: 0, offset: 0, querySelectorAll: () => [], contains: (el) => el === panel || el === field,\n"
+            "  focus() { document.activeElement = panel; }, get scrollTop() { return this.offset; }, set scrollTop(v) { this.offset = Math.max(0, Math.min(v, this.height - 300)); } };\n"
+            "globalThis.document = { activeElement: body, querySelector: () => panel };\n"
+            "const showPanel = (p, open) => { p.hidden = !open; }, render = () => renderPanel(), reveal = () => {};\n"
+            # The browser keeps the offset through a rebuild as far as the new content allows, and shifts it as the
+            # title grows to a second line.
+            "const fillPanel = (p, t) => { showPanel(p, true); p.height = tall[t.id]; p.scrollTop += 24; };\n"
+            "const out = [];\n"
+            "for (const [what, arg] of input.steps) {\n"
+            "  if (what === 'open') select(arg);\n"
+            "  if (what === 'close') select(null);\n"
+            "  if (what === 'render') renderPanel();\n"
+            "  if (what === 'scroll') { panel.scrollTop = arg; continue; }\n"
+            "  if (what === 'tall') { tall[ui.selected] = arg; continue; }\n"
+            "  if (what === 'type') { document.activeElement = field; continue; }\n"
+            "  if (what === 'leave') { document.activeElement = body; continue; }\n"
+            "  out.push([ui.selected, panel.hidden ? null : panel.scrollTop]);\n"
+            "}\n"
+            "process.stdout.write(JSON.stringify(out));")
+        sections = [("function select(", "\n// A note that failed to save"), ("const tabbables =", "\nfunction fillPanel(")]
+        out = json.loads(run_html_js(self, code, json.dumps({"board": board, "steps": steps}), sections))
+        self.assertEqual(out, [
+            ["A-01", 0],
+            ["A-01", 900], ["A-01", 900], ["A-01", 700],
+            ["B-01", 0],
+            ["B-01", 500], ["B-01", 500],
+            ["A-01", 0],
+            ["A-01", 400],
+            [None, None], ["A-01", 0],
+            [None, None], ["B-01", 0],
+        ])
+
+
+class ShortcutLabelTests(unittest.TestCase):
+    def test_apple_keyboards_show_command_where_the_others_show_ctrl(self):
+        code = ("process.stdout.write(JSON.stringify(input.map((platform) => {\n"
+                "  Object.defineProperty(globalThis, 'navigator', { value: { platform }, configurable: true });\n"
+                "  return [keyLabel('Ctrl+Shift+Z / Ctrl+Y'), keyLabel('Deleted 2 tasks. Ctrl+Z brings them back.')];\n"
+                "})));")
+        out = json.loads(run_html_js(self, code, json.dumps(["MacIntel", "iPad", "Win32", "Linux x86_64", ""])))
+        mac = ["⌘+Shift+Z / ⌘+Y", "Deleted 2 tasks. ⌘+Z brings them back."]
+        other = ["Ctrl+Shift+Z / Ctrl+Y", "Deleted 2 tasks. Ctrl+Z brings them back."]
+        self.assertEqual(out, [mac, mac, other, other, other])
+
+    def test_the_shortcuts_dialog_lists_every_shortcut_once_in_four_groups(self):
+        code = "process.stdout.write(JSON.stringify(SHORTCUTS.map(([head, keys]) => [head, keys.map(([k]) => k)])));"
+        groups = json.loads(run_html_js(self, code, "null", [("const SHORTCUTS =", "\nfunction helpDialog")]))
+        self.assertEqual([head for head, _ in groups], ["Moving around", "The selected task", "Views", "Editing"])
+        keys = [k for _, ks in groups for k in ks]
+        self.assertEqual(len(keys), 24)
+        self.assertEqual(len(set(keys)), len(keys))
+        self.assertIn("Enter", groups[0][1])
+        self.assertIn("Ctrl+Z", groups[3][1])
+
+
+class CardLabelTests(unittest.TestCase):
+    def test_a_card_is_named_by_its_id_title_state_and_who_its_foot_shows(self):
+        with open(os.path.join(ROOT, "examples", "sample.json"), encoding="utf-8") as f:
+            b = json.load(f)
+        next(t for t in b["tasks"] if t["id"] == "FE-02")["notes"].append({"by": "codex", "at": "2026-10-20T10:00:00Z", "text": "Question: metric or imperial?"})
+        code = ("const b = normalize(input), ix = indexOf(b);\n"
+                "process.stdout.write(JSON.stringify(Object.fromEntries(b.tasks.map((t) => [t.id, cardLabel(t, vstateIn(ix, t), unmetIn(ix, t))]))));")
+        names = json.loads(run_html_js(self, code, json.dumps(b), [("function cardLabel(", "\nfunction cardFoot(")]))
+        self.assertEqual(names["BE-02"], "BE-02 Fetch and cache forecasts, Review, claude")
+        self.assertEqual(names["BE-03"], "BE-03 City search endpoint, Doing, codex")
+        self.assertEqual(names["FE-02"], "FE-02 Forecast cards, Waiting for you, codex")
+        self.assertEqual(names["FE-03"], "FE-03 City search box, Blocked, waiting on FE-02, BE-03")
+        self.assertEqual(names["FE-05"], "FE-05 Offline banner, Proposed, codex")
+        self.assertEqual(names["FE-04"], "FE-04 Dark mode, To do")
+        self.assertEqual(names["RS-01"], "RS-01 Compare weather APIs, Done")
+
+
 class WorkflowTests(TempBoard):
     def test_status_lists_what_matters(self):
         _, out, _ = self.run_cli("status")
@@ -336,6 +1150,13 @@ class WorkflowTests(TempBoard):
         self.assertIn("Proposed, awaiting human approval (1)", out)
         _, out, _ = self.run_cli("ready")
         self.assertEqual(out.split(), ["DV-02", "Task", "DV-02"])
+
+    def test_status_names_an_untitled_board_as_the_boards_page_does(self):
+        board = self.board()
+        board["title"] = ""
+        write_board(self.path, board)
+        _, out, _ = self.run_cli("status")
+        self.assertEqual(out.splitlines()[0], f"{kanvas.board_name(self.path)}  (kanvas.json)")
 
     def test_agents_cannot_start_blocked_proposed_or_running_tasks(self):
         self.assertIn("blocked by unfinished DV-02", self.fails("start", "DV-03"))
@@ -403,6 +1224,21 @@ class WorkflowTests(TempBoard):
         self.run_cli("finish", "DV-02", "--file", notes)
         self.assertEqual(self.get("DV-02")["notes"][-1]["text"], "Done:\n- parser\n- tests")
 
+    def test_start_reads_the_plan_from_stdin_or_a_file(self):
+        plan = "Plan ✓:\n- parse\n- test"
+        self.run_cli("start", "DV-02", "--stdin", stdin=plan.encode("utf-8"))
+        self.assertEqual(self.get("DV-02")["notes"][-1]["text"], plan)
+        self.run_cli("pause", "DV-02")
+        path = os.path.join(self.dir, "plan.md")
+        with open(path, "wb") as f:
+            f.write("\ufeffPlan:\r\n- again\r\n".encode("utf-8"))
+        self.run_cli("start", "DV-02", "--file", path)
+        self.assertEqual(self.get("DV-02")["notes"][-1]["text"], "Plan:\n- again")
+        self.run_cli("pause", "DV-02")
+        before = self.raw()
+        self.assertIn("only once", self.fails("start", "DV-02", "-m", "inline", "--stdin", stdin=b"piped"))
+        self.assertEqual(self.raw(), before)
+
     def test_text_may_be_given_only_once(self):
         self.assertIn("only once", self.fails("note", "DV-02", "inline", "--stdin", stdin=b"piped"))
 
@@ -438,6 +1274,107 @@ class WorkflowTests(TempBoard):
         board["tasks"].append(task("DV-05", deps=["DV-77"]))
         write_board(self.path, board)
         self.assertNotEqual(self.run_cli("check", check=False)[0], 0)
+
+
+class QuestionTests(TempBoard):
+    def test_ask_shows_the_wait_until_the_next_note(self):
+        self.run_cli("start", "DV-02", "--as", "claude")
+        _, out, _ = self.run_cli("ask", "DV-02", "--as", "claude", "Question: SQLite or Postgres?")
+        self.assertIn("DV-02 now shows the human that you wait for their reply", out)
+        last = self.get("DV-02")["notes"][-1]
+        self.assertEqual((last["by"], last["text"]), ("claude", "Question: SQLite or Postgres?"))
+        self.assertIn("DV-02  Task DV-02  (waiting for the human: SQLite or Postgres?)", self.run_cli("status")[1])
+        self.assertIn("Waits:  for the human to reply to the question claude asked", self.run_cli("show", "DV-02")[1])
+        _, out, _ = self.run_cli("note", "DV-02", "--as", "claude", "SQLite, the human said")
+        self.assertIn("DV-02 no longer waits for the human.", out)
+        self.assertIsNone(kanvas.open_question(self.get("DV-02")))
+        self.assertNotIn("waiting for the human", self.run_cli("status")[1])
+        self.assertNotIn("no longer waits", self.run_cli("note", "DV-02", "Another note")[1])
+
+    def test_ask_needs_a_question_on_a_task_in_progress(self):
+        self.assertIn("DV-02 is todo; ask on a task you are working on", self.fails("ask", "DV-02", "Which one?"))
+        self.assertIn("DV-03 is blocked", self.fails("ask", "DV-03", "Which one?"))
+        self.run_cli("start", "DV-02")
+        before = self.raw()
+        self.assertIn("The question is empty", self.fails("ask", "DV-02", "Question:"))
+        self.assertEqual(self.raw(), before)
+
+    def test_leaving_doing_ends_the_wait(self):
+        self.run_cli("start", "DV-02")
+        self.run_cli("ask", "DV-02", "Which one?")
+        t = self.get("DV-02")
+        self.assertEqual(kanvas.open_question(t)["text"], "Question: Which one?")
+        t["state"] = "review"
+        self.assertIsNone(kanvas.open_question(t))
+        self.run_cli("finish", "DV-02", "-m", "Done without an answer")
+        self.assertIsNone(kanvas.open_question(self.get("DV-02")))
+
+    def test_html_open_question_matches_python(self):
+        q = {"at": "2026-10-26T09:00:00Z", "by": "claude", "text": "Question: Which one?"}
+        later = {"at": "2026-10-26T09:05:00Z", "by": "claude", "text": "The human chose the first"}
+        board = kanvas.new_board()
+        board["tasks"] = [task("Q-01", "doing", notes=[q]), task("Q-02", "doing", notes=[q, later]),
+                          task("Q-03", "review", notes=[q]), task("Q-04", "doing", notes=[dict(q, by="human")]),
+                          task("Q-05", "doing", notes=[dict(q, text="Questions: none")]), task("Q-06", "doing"),
+                          task("Q-07", "doing", notes=[later, q])]
+        out = run_html_js(self, "process.stdout.write(JSON.stringify(normalize(input).tasks.map((t) => !!openQuestion(t))));", json.dumps(board))
+        expected = [kanvas.open_question(t) is not None for t in board["tasks"]]
+        self.assertEqual(json.loads(out), expected)
+        self.assertEqual(expected, [True, False, False, False, False, False, True])
+
+
+class ChangeRequestTests(TempBoard):
+    REQUEST = {"at": "2026-10-26T09:00:00Z", "by": "human", "text": "Changes requested: Split it in two"}
+    HUMAN = {"at": "2026-10-26T09:02:00Z", "by": "human", "text": "And keep the cache out of it"}
+    AGENT = {"at": "2026-10-26T09:05:00Z", "by": "codex", "text": "Split as asked"}
+
+    def request(self, *notes):
+        board = self.board()
+        kanvas.find_task(board, "DV-04")["notes"] = [self.REQUEST, *notes]
+        write_board(self.path, board)
+
+    def test_status_and_show_point_at_the_request_until_an_agent_answers(self):
+        self.request()
+        self.assertIn("DV-04  Task DV-04  (changes requested: Split it in two)", self.run_cli("status")[1])
+        self.assertIn("Revise: the human asked for changes", self.run_cli("show", "DV-04")[1])
+        _, out, _ = self.run_cli("edit", "DV-04", "--title", "The endpoint", "--as", "codex")
+        self.assertIn("The human's request for changes on DV-04 stays open until you say what you changed", out)
+        self.assertIn("(changes requested: Split it in two)", self.run_cli("status")[1])
+        _, out, _ = self.run_cli("note", "DV-04", "--as", "codex", "Split: the caching is now DV-05")
+        self.assertIn("This note answers the human's request for changes on DV-04.", out)
+        self.assertIsNone(kanvas.change_request(self.get("DV-04")))
+        self.assertNotIn("changes requested", self.run_cli("status")[1])
+        self.assertNotIn("Revise:", self.run_cli("show", "DV-04")[1])
+        self.assertNotIn("request for changes", self.run_cli("note", "DV-04", "Another note")[1])
+
+    def test_the_human_may_add_to_the_request_and_edit_with_a_note_answers_it(self):
+        self.request(self.HUMAN)
+        self.assertIn("(changes requested: Split it in two)", self.run_cli("status")[1])
+        _, out, _ = self.run_cli("edit", "DV-04", "--desc", "Only the endpoint", "-m", "Split as asked", "--as", "codex")
+        self.assertIn("This answers the human's request for changes on DV-04.", out)
+        self.assertIsNone(kanvas.change_request(self.get("DV-04")))
+
+    def test_a_proposal_under_yolo_is_not_sent_back_for_revision(self):
+        self.request()
+        board = self.board()
+        kanvas.find_task(board, "DV-04")["yolo"] = True
+        write_board(self.path, board)
+        self.assertNotIn("changes requested", self.run_cli("status")[1])
+        self.assertNotIn("Revise:", self.run_cli("show", "DV-04")[1])
+
+    def test_html_change_request_matches_python(self):
+        r, human, agent = self.REQUEST, self.HUMAN, self.AGENT
+        unsigned = {k: v for k, v in agent.items() if k != "by"}
+        board = kanvas.new_board()
+        board["tasks"] = [task("C-01", "proposed", notes=[r]), task("C-02", "proposed", notes=[r, human]),
+                          task("C-03", "proposed", notes=[r, agent]), task("C-04", "todo", notes=[r]),
+                          task("C-05", "proposed", notes=[dict(r, by="codex")]), task("C-06", "proposed", notes=[dict(r, text="Changes requested")]),
+                          task("C-07", "proposed"), task("C-08", "proposed", notes=[agent, r]),
+                          task("C-09", "proposed", notes=[r, agent, human]), task("C-10", "proposed", notes=[r, unsigned])]
+        out = run_html_js(self, "process.stdout.write(JSON.stringify(normalize(input).tasks.map((t) => !!changeRequest(t))));", json.dumps(board))
+        expected = [kanvas.change_request(t) is not None for t in board["tasks"]]
+        self.assertEqual(json.loads(out), expected)
+        self.assertEqual(expected, [True, True, False, False, False, False, False, True, False, False])
 
 
 class YoloTests(TempBoard):
@@ -516,18 +1453,43 @@ class YoloTests(TempBoard):
         self.run_cli("finish", "DV-02", "-m", "Parser done")
         self.assertEqual(self.get("DV-02")["state"], "review")
 
-    def test_proposals_linked_into_the_chain_count_as_approved(self):
-        self.assertIn("a human must approve it", self.fails("start", "DV-04"))
-        self.run_cli("depend", "DV-02", "DV-04")
+    def test_a_proposal_linked_into_the_chain_waits_for_approval(self):
+        self.run_cli("propose", "Development", "Delete the production database", "--as", "codex")
+        self.assertIn("a human must approve it", self.fails("start", "DV-06"))
+        _, out, _ = self.run_cli("depend", "DV-02", "DV-04", "DV-06")
+        self.assertIn("DV-02 now depends on DV-04, DV-06 (blocked until they are done)", out)
+        self.assertIn("ask the human to approve DV-04, DV-06 in the board", out)
+        before = self.raw()
+        for tid in ("DV-04", "DV-06"):
+            self.assertIn("a human must approve it", self.fails("start", tid))
+        self.assertEqual(self.raw(), before)
         _, out, _ = self.run_cli("status")
-        self.assertIn("YOLO on DV-03", out)
-        self.assertIn("DV-03 itself goes to review", out)
-        self.assertNotIn("Proposed, awaiting human approval", out)
-        _, out, _ = self.run_cli("start", "DV-04")
-        self.assertIn("proposed -> doing, approved by YOLO", out)
-        self.assertIn("YOLO:   through DV-03", out)
-        self.run_cli("finish", "DV-04", "-m", "Done")
-        self.assertEqual(self.get("DV-04")["state"], "done")
+        self.assertIn("Proposed, awaiting human approval (2)\n  DV-04  Task DV-04\n  DV-06  Delete the production database\n", out)
+        self.assertIn("DV-02  Task DV-02  (waiting on DV-04, DV-06)  (YOLO)", out)
+        self.assertIn("YOLO:   joins the chain of DV-03 once a human approves it", self.run_cli("show", "DV-06")[1])
+        self.assertNotIn("ask the human", self.run_cli("depend", "DV-03", "DV-04")[1])
+        board = self.board()
+        kanvas.find_task(board, "DV-06")["state"] = "todo"  # the human approves it in the board
+        write_board(self.path, board)
+        self.assertIn("DV-06  Delete the production database  (YOLO)", self.run_cli("ready")[1])
+        self.run_cli("start", "DV-06")
+        self.run_cli("finish", "DV-06", "-m", "Done")
+        self.assertEqual(self.get("DV-06")["state"], "done")
+
+    def test_html_a_link_the_human_makes_approves_the_proposals_it_brings_into_the_chain(self):
+        board = kanvas.new_board()
+        board["tasks"] = [task("Y-01", "proposed"), task("Y-02", deps=["Y-01"]), task("Y-03", deps=["Y-02"], yolo=True),
+                          task("Y-04", "proposed", deps=["Y-05"]), task("Y-05", "proposed"), task("Y-06", "proposed"), task("Y-07", "proposed")]
+        code = ("const b = normalize(input), ix = indexOf(b), seen = b.tasks.map((t) => vstateIn(ix, t));"
+                "ops.addDep('Y-02', 'Y-04')(b); ops.addTask({ title: 'New', deps: ['Y-06'], blocks: ['Y-03'] }, {})(b);"
+                "process.stdout.write(JSON.stringify([seen, b.tasks.map((t) => t.state)]));")
+        sections = [("function mustFind(", "\n// ----"), ("function inlineMd(", "\n// ----")]
+        seen, after = json.loads(run_html_js(self, code, json.dumps(board), sections))
+        tasks = kanvas.task_map(board)
+        self.assertEqual(seen, [kanvas.view_state(t, tasks) for t in board["tasks"]])
+        self.assertEqual(seen, ["proposed", "blocked", "blocked", "proposed", "proposed", "proposed", "proposed"])
+        # Y-01 was linked in before (by an agent) and stays proposed; Y-07 is outside the chain.
+        self.assertEqual(after, ["proposed", "todo", "todo", "todo", "todo", "todo", "proposed", "todo"])
 
 
 class ProposalTests(TempBoard):
@@ -568,6 +1530,39 @@ class ProposalTests(TempBoard):
         spec = {"groups": ["Research"], "tasks": [{"title": "ok", "group": "Research"}, {"title": "bad", "deps": ["Nope"]}]}
         self.assertIn("Dependency 'Nope' not found", self.fails("batch", stdin=json.dumps(spec).encode("utf-8")))
         self.assertEqual(self.raw(), before)
+
+    def test_batch_rejects_malformed_input(self):
+        before = self.raw()
+        ok = {"title": "Fine", "group": "Development"}
+        cases = [
+            ({"groups": "Backend"}, 'Batch "groups" must be a list'),
+            ({"tasks": "nope"}, 'Batch "tasks" must be a list'),
+            ({}, "The batch has no groups or tasks"),
+            ({"groups": [["Research"]]}, "Group #1 in the batch must be a name or"),
+            ({"groups": ["Research", {"prefix": "QA"}]}, 'Group #2 in the batch needs a "name"'),
+            ({"groups": [{"name": "Quality", "prefix": 7}]}, "Group 'Quality': \"prefix\" must be a string"),
+            ({"tasks": [ok, "Just a title"]}, "Task #2 in the batch must be an object"),
+            ({"tasks": [{"title": 5}]}, 'Task #1 in the batch: "title" must be a string'),
+            ({"tasks": [ok, {"group": "Development"}]}, "Task #2 in the batch has no title"),
+            ({"tasks": [{"title": "Seven", "desc": 7}]}, "Task 'Seven': \"desc\" must be a string"),
+            ({"tasks": [{"title": "Listed", "description": ["a"]}]}, "Task 'Listed': \"description\" must be a string"),
+            ({"tasks": [{"title": "Object", "group": {"x": 1}}]}, "Task 'Object': \"group\" must be a string"),
+            ({"tasks": [ok, {"title": "Missing", "group": "Nope"}]}, "Task 'Missing': Group 'Nope' not found"),
+            ({"tasks": [{"title": "Number", "deps": 3}]}, "Task 'Number': \"deps\" must be a task ID or title"),
+            ({"tasks": [{"title": "Mixed", "depends_on": ["DV-02", 3]}]}, "Task 'Mixed': \"depends_on\" must be a task ID or title"),
+        ]
+        for spec, message in cases:
+            with self.subTest(spec=spec):
+                code, out, err = self.run_cli("batch", stdin=json.dumps(spec).encode("utf-8"), check=False)
+                self.assertEqual(code, 1, out)
+                self.assertRegex(err, r"\AError: [^\n]+\n\Z")
+                self.assertIn(message, err)
+                self.assertEqual(self.raw(), before)
+
+    def test_batch_of_one_task_says_task(self):
+        _, out, _ = self.run_cli("batch", stdin=json.dumps([{"title": "Only one", "deps": "DV-02", "desc": None}]).encode())
+        self.assertIn("Proposed 1 task. A human must approve it before work starts.", out)
+        self.assertEqual((self.get("G-01")["deps"], self.get("G-01")["desc"]), (["DV-02"], ""))
 
     def test_more_than_99_tasks(self):
         spec = [{"title": f"Step {i}", "group": "Development"} for i in range(1, 101)]
@@ -637,15 +1632,17 @@ class RevisionTests(TempBoard):
         self.assertIn("only a human can change it", self.fails("undepend", "DV-03", "DV-02"))
         self.assertEqual(self.raw(), before)
 
-    def test_proposals_under_yolo_count_as_approved(self):
+    def test_proposals_in_a_yolo_chain_stay_proposals(self):
         board = self.board()
-        kanvas.find_task(board, "DV-06")["yolo"] = True
+        dv3 = kanvas.find_task(board, "DV-03")
+        dv3["yolo"], dv3["deps"] = True, ["DV-02", "DV-05"]
         write_board(self.path, board)
+        self.run_cli("edit", "DV-05", "--title", "Revised in the chain")
+        self.run_cli("undepend", "DV-05", "DV-04")
         before = self.raw()
-        for args in (("edit", "DV-04", "--title", "x"), ("withdraw", "DV-04"), ("undepend", "DV-06", "DV-04")):
-            self.assertIn("under YOLO", self.fails(*args))
+        self.assertIn("DV-03 is approved and depends on DV-05", self.fails("withdraw", "DV-05"))
+        self.assertIn("a human must approve it", self.fails("start", "DV-05"))
         self.assertEqual(self.raw(), before)
-        self.run_cli("edit", "DV-05", "--title", "Outside the chain")
 
 
 class InitTests(unittest.TestCase):
@@ -868,6 +1865,13 @@ class InstalledCommandTests(TempBoard):
         with self.running(argv0=""):
             self.assertTrue(kanvas.build_parser().format_help().startswith("usage: kanvas.py [-h]"))
 
+    def test_serve_help_says_which_ports_it_tries(self):
+        with mock.patch.object(sys, "stdout", io.StringIO()) as out, self.assertRaises(SystemExit):
+            kanvas.main(["serve", "-h"])
+        text = " ".join(out.getvalue().split())
+        self.assertIn("--port PORT port to serve on (default: 8765), or the next free one up to 19 higher (8784 by default);", text)
+        self.assertIn("when a Kanvas already runs on any of these ports, serve opens the board there and returns", text)
+
     def test_missing_board_names_the_init_command(self):
         nowhere = argparse.Namespace()
         with mock.patch.object(kanvas, "find_board", return_value=None), mock.patch.dict(os.environ):
@@ -993,10 +1997,23 @@ class ImportExportTests(TempBoard):
         self.run_cli("export", "snap.html")
         with open(os.path.join(self.dir, "snap.html"), encoding="utf-8") as f:
             html = f.read()
-        m = re.search(r'<script id="kanvas-snapshot" type="application/json" data-at="[^"]+">(.*?)</script>', html, re.S)
+        m = re.search(r'<script id="kanvas-snapshot" type="application/json" data-at="[^"]+" data-name="([^"]+)">(.*?)</script>', html, re.S)
         self.assertIsNotNone(m)
-        self.assertNotIn("<", m.group(1))
-        self.assertEqual(json.loads(m.group(1))["tasks"][0]["desc"], "</script><script>alert(1)</script>")
+        self.assertEqual(m.group(1), kanvas.board_name(self.path))
+        self.assertNotIn("<", m.group(2))
+        self.assertEqual(json.loads(m.group(2))["tasks"][0]["desc"], "</script><script>alert(1)</script>")
+
+    def test_an_untitled_board_goes_by_its_name_in_the_page(self):
+        """As on the boards page: the name in its address when served, the one export recorded, else "Kanvas"."""
+        code = ("globalThis.location = { pathname: '/my-project/' };\n"
+                "let board, store;\n"
+                "process.stdout.write(JSON.stringify(input.map(([title, kind, boardName]) => {\n"
+                "  board = { title }; store = kind ? { kind, boardName } : null;\n"
+                "  return boardLabel();\n"
+                "})));")
+        cases = [["Mine", "server", None], ["", "server", None], ["", "snapshot", "exported"], ["", "file", None], ["", None, None]]
+        out = run_html_js(self, code, json.dumps(cases), [("const boardHere =", "\nasync function refreshBoards")])
+        self.assertEqual(json.loads(out), ["Mine", "my-project", "exported", "Kanvas", "Kanvas"])
 
 
 class ConcurrencyTests(TempBoard):
@@ -1021,6 +2038,15 @@ class ConcurrencyTests(TempBoard):
         os.utime(lock, (old, old))
         self.run_cli("note", "DV-02", "after a crash")
         self.assertFalse(os.path.exists(lock))
+
+    def test_writers_outwait_a_lock_left_by_a_crash(self):
+        self.assertLess(kanvas.STALE_LOCK_AGE, kanvas.LOCK_TIMEOUT)
+        lock = self.path + ".lock"
+        open(lock, "w").close()
+        with mock.patch.object(kanvas, "STALE_LOCK_AGE", 0.3), mock.patch.object(kanvas, "LOCK_TIMEOUT", 0.6):
+            kanvas.mutate(self.path, lambda board: kanvas.add_note(kanvas.find_task(board, "DV-02"), "after a crash", "codex"))
+        self.assertFalse(os.path.exists(lock))
+        self.assertEqual(self.get("DV-02")["notes"][-1]["text"], "after a crash")
 
     def test_busy_lock_gives_up_at_the_deadline(self):
         open(self.path + ".lock", "w").close()
@@ -1070,6 +2096,15 @@ class ServerTests(TempBoard):
         server.server_close()
         self.assertEqual(server.server_name, "127.0.0.1")
 
+    def test_a_busy_port_moves_kanvas_to_the_next_free_one(self):
+        with socket.socket() as busy:
+            busy.bind(("127.0.0.1", 0))
+            busy.listen()
+            port = busy.getsockname()[1]
+            server = kanvas.start_server(self.path, "127.0.0.1", port, quiet=True)
+        server.server_close()
+        self.assertIn(server.server_address[1], range(port + 1, port + 20))
+
     def test_serves_the_page_and_the_board(self):
         status, headers, body = self.request("GET", f"/{self.name}/")
         self.assertEqual(status, 200)
@@ -1104,14 +2139,45 @@ class ServerTests(TempBoard):
         self.assertEqual(self.put(board, ctype="text/plain")[0], 415)
         bad = json.loads(before)
         bad["tasks"][0]["state"] = "finished"
-        self.assertEqual(self.put(bad)[0], 400)
+        self.assertEqual(self.put(bad, kanvas.etag_of(before))[0], 400)
         dup = json.loads(before)
         dup["tasks"].append(dict(dup["tasks"][0]))
-        self.assertEqual(self.put(dup)[0], 400)
+        self.assertEqual(self.put(dup, kanvas.etag_of(before))[0], 400)
         status, _, _ = self.request("GET", self.api, headers={"Host": "evil.example:8765"})
         self.assertEqual(status, 403)
         status, _, _ = self.request("PUT", self.api, b"{}", {"Host": "evil.example", "Content-Type": "application/json"})
         self.assertEqual(status, 403)
+        self.assertEqual(self.raw(), before)
+
+    def test_writes_need_the_version_they_change_and_a_task_list(self):
+        before = self.raw()
+        board = json.loads(before)
+        board["tasks"][3]["state"] = "todo"
+        status, _, body = self.put(board)
+        self.assertEqual(status, 428)
+        self.assertIn("If-Match", json.loads(body)["error"])
+        for partial in ({}, {"kanvas": 1, "title": "Test", "groups": []}):
+            with self.subTest(partial=partial):
+                status, _, body = self.put(partial, kanvas.etag_of(before))
+                self.assertEqual((status, json.loads(body)["error"]), (400, "Expected a board with its task list"))
+        self.assertEqual(self.put({"tasks": None}, kanvas.etag_of(before))[0], 400)
+        self.assertEqual(self.raw(), before)
+        status, headers, _ = self.put(board, kanvas.etag_of(before))
+        self.assertEqual(status, 200)
+        # A board whose tasks were all deleted still has its task list.
+        self.assertEqual(self.put(dict(board, tasks=[]), headers["ETag"])[0], 200)
+        self.assertEqual(self.board()["tasks"], [])
+
+    def test_a_malformed_content_length_is_answered_at_once(self):
+        before = self.raw()
+        for length in ("abc", "-1", "1.5"):
+            for method, path in (("PUT", self.api), ("POST", "/api/boards")):
+                with self.subTest(length=length, method=method), \
+                        socket.create_connection(("127.0.0.1", self.port), timeout=5) as s:
+                    s.sendall(f"{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{self.port}\r\nContent-Type: application/json\r\n"
+                              f"If-Match: {kanvas.etag_of(before)}\r\nContent-Length: {length}\r\n\r\n".encode("ascii"))
+                    status = s.makefile("rb").readline().split()[1]
+                    self.assertEqual(status, b"400")
         self.assertEqual(self.raw(), before)
 
     def other_project(self, folder="other", title="Other"):
@@ -1133,9 +2199,11 @@ class ServerTests(TempBoard):
         with open(other, "rb") as f:
             self.assertEqual(self.request("GET", "/other/api/board")[2], f.read())
         self.assertEqual(self.request("GET", self.api)[2], self.raw())
-        board = json.loads(self.request("GET", "/other/api/board")[2])
+        _, headers, body = self.request("GET", "/other/api/board")
+        board = json.loads(body)
         board["tasks"][3]["state"] = "todo"
-        status, _, _ = self.request("PUT", "/other/api/board", json.dumps(board).encode("utf-8"), {"Content-Type": "application/json"})
+        status, _, _ = self.request("PUT", "/other/api/board", json.dumps(board).encode("utf-8"),
+                                    {"Content-Type": "application/json", "If-Match": headers["ETag"]})
         self.assertEqual(status, 200)
         with open(other) as f:
             self.assertEqual(json.load(f)["tasks"][3]["state"], "todo")
@@ -1163,10 +2231,27 @@ class ServerTests(TempBoard):
         status, _, body = self.request("GET", "/nothing/")
         self.assertEqual(status, 404)
         self.assertIn(b"Run <code>kanvas serve</code> in its project", body)
+        self.assertIn(b"its project folder may have been moved or renamed", body)
+        self.assertNotIn(b"forgets", body)
         status, _, body = self.request("GET", "/nothing/api/board")
         self.assertEqual(status, 404)
         self.assertIn("kanvas serve", json.loads(body)["error"])
         self.assertEqual(self.request("PUT", "/nothing/api/board", b"{}", {"Content-Type": "application/json"})[0], 404)
+
+    def test_the_boards_page_says_once_how_to_open_a_board(self):
+        hint = b"Run <code>kanvas serve</code> in a project to open its board here."
+        empty = kanvas.start_server(None, "127.0.0.1", 0, quiet=True)
+        threading.Thread(target=empty.serve_forever, daemon=True).start()
+        self.addCleanup(empty.server_close)
+        self.addCleanup(empty.shutdown)
+        conn = http.client.HTTPConnection("127.0.0.1", empty.server_address[1], timeout=10)
+        self.addCleanup(conn.close)
+        conn.request("GET", "/")
+        body = conn.getresponse().read()
+        self.assertIn(b"No boards are open.", body)
+        self.assertEqual(body.count(hint), 1)
+        self.open_board(self.other_project())
+        self.assertEqual(self.request("GET", "/")[2].count(hint), 1)
 
     def test_opening_a_board_needs_a_board_file_and_this_computer(self):
         other = self.other_project()
@@ -1186,6 +2271,42 @@ class ServerTests(TempBoard):
         # The second project's own run sees its folder with symlinks resolved, as /private/var on macOS.
         self.assertEqual([os.path.realpath(b["path"]) for b in json.loads(self.request("GET", "/api/boards")[2])["boards"]],
                          [os.path.realpath(self.path), os.path.realpath(other)])
+
+    def test_serve_finds_a_kanvas_that_took_a_later_port(self):
+        """A Kanvas that took port + 2 while the ports below were busy is found once they are free again."""
+        for _ in range(10):
+            server = kanvas.start_server(self.path, "127.0.0.1", 0, quiet=True)
+            port = server.server_address[1]
+            if kanvas.port_free("127.0.0.1", port - 2) and kanvas.port_free("127.0.0.1", port - 1):
+                break
+            server.server_close()
+        else:
+            self.skipTest("no test port with two free ports below it")
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        other = self.other_project()
+        env = dict(os.environ, KANVAS_AGENT="")
+        env.pop("KANVAS_BOARD", None)
+        # A timeout, since a serve that misses the running Kanvas starts its own and keeps running.
+        proc = subprocess.run([sys.executable, SCRIPT, "serve", "--no-open", "--port", str(port - 2)],
+                              cwd=os.path.dirname(other), input=b"", capture_output=True, env=env, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8"))
+        self.assertIn(f"Opened in the Kanvas already running: http://127.0.0.1:{port}/other/", proc.stdout.decode("utf-8"))
+        self.assertEqual([b["name"] for b in server.board_list()], [self.name, "other"])
+        self.assertTrue(kanvas.port_free("127.0.0.1", port - 2))
+
+    def test_finding_a_kanvas_probes_only_taken_ports(self):
+        """Connecting to a closed port takes seconds on Windows."""
+        answer = mock.MagicMock()
+        answer.__enter__.return_value.read.return_value = json.dumps({"kanvas": "9.9", "boards": []}).encode("utf-8")
+        with mock.patch.object(kanvas, "port_free", side_effect=lambda host, p: p != 40019), \
+                mock.patch.object(kanvas.LOCAL, "open", return_value=answer) as probe:
+            self.assertEqual(kanvas.find_running(40000), ("http://127.0.0.1:40019/", "9.9"))
+        self.assertEqual([c[0][0] for c in probe.call_args_list], ["http://127.0.0.1:40019/api/boards"])
+        with mock.patch.object(kanvas, "port_free", return_value=True), mock.patch.object(kanvas.LOCAL, "open") as probe:
+            self.assertIsNone(kanvas.find_running(40000))
+        probe.assert_not_called()
 
     def phone_server(self):
         """A listener like the one `serve --tailscale` adds, here on another local port."""
@@ -1218,7 +2339,8 @@ class ServerTests(TempBoard):
             self.assertEqual(self.phone_request(port, "GET", "/other/api/board", "box"), (200, f.read()))
         board = json.loads(self.raw())
         board["tasks"][3]["state"] = "todo"
-        status, _ = self.phone_request(port, "PUT", self.api, "box", json.dumps(board).encode("utf-8"), {"Content-Type": "application/json"})
+        status, _ = self.phone_request(port, "PUT", self.api, "box", json.dumps(board).encode("utf-8"),
+                                       {"Content-Type": "application/json", "If-Match": kanvas.etag_of(self.raw())})
         self.assertEqual(status, 200)
         self.assertEqual(self.get("DV-04")["state"], "todo")
 
@@ -1230,6 +2352,45 @@ class ServerTests(TempBoard):
         self.assertIn("only from the computer running Kanvas", json.loads(reply)["error"])
         self.assertEqual([b["name"] for b in json.loads(self.request("GET", "/api/boards")[2])["boards"]], [self.name])
 
+    def test_only_this_computer_sees_where_the_boards_live(self):
+        other = self.other_project()
+        self.open_board(other)
+        path = self.path.encode("utf-8")
+        self.assertEqual([b["path"] for b in json.loads(self.request("GET", "/api/boards")[2])["boards"]], [self.path, other])
+        self.assertIn(path, self.request("GET", "/")[2])
+        names_only = [{"name": self.name, "title": "Test"}, {"name": "other", "title": "Other"}]
+        port = self.phone_server()
+        status, body = self.phone_request(port, "GET", "/api/boards", "box")
+        self.assertEqual((status, json.loads(body)["boards"]), (200, names_only))
+        status, body = self.phone_request(port, "GET", "/", "box")
+        self.assertEqual(status, 200)
+        self.assertIn(b'href="/other/"', body)
+        self.assertNotIn(path, body)
+        # `tailscale serve` passes phones on to this computer's own address, by its Tailscale name.
+        self.open_to_phone()
+        self.assertEqual(json.loads(self.request("GET", "/api/boards", headers={"Host": "box.tail1.ts.net"})[2])["boards"], names_only)
+        handler = kanvas.BoardHandler.__new__(kanvas.BoardHandler)
+        for address, host, local in (("127.0.0.1", "127.0.0.1:8765", True), ("::1", "[::1]:8765", True), ("127.0.0.1", "localhost", True),
+                                     ("100.64.0.9", "127.0.0.1:8765", False), ("127.0.0.1", "box.tail1.ts.net", False),
+                                     ("192.168.1.5", "localhost:8765", False), ("127.0.0.1", "", False)):
+            with self.subTest(address=address, host=host):
+                handler.client_address, handler.headers = (address, 50000), {"Host": host}
+                self.assertEqual(handler._from_this_computer(), local)
+
+    def test_a_phone_is_not_told_where_a_board_it_could_not_save_lives(self):
+        port = self.phone_server()
+        board = json.loads(self.raw())
+        board["tasks"][3]["state"] = "todo"
+        body, headers = json.dumps(board).encode("utf-8"), {"Content-Type": "application/json", "If-Match": kanvas.etag_of(self.raw())}
+        open(self.path + ".lock", "w").close()
+        self.addCleanup(os.remove, self.path + ".lock")
+        with mock.patch.object(kanvas, "LOCK_TIMEOUT", 0.2):
+            status, reply = self.phone_request(port, "PUT", self.api, "box", body, headers)
+            self.assertEqual((status, json.loads(reply)["error"]), (503, "The computer running Kanvas could not save the board"))
+            status, _, reply = self.request("PUT", self.api, body, headers)
+            self.assertEqual(status, 503)
+            self.assertIn("lock file", json.loads(reply)["error"])
+
     def open_to_phone(self, magic=True):
         """POST to open the boards to phones, with Tailscale and its listener stood in for."""
         listener = mock.Mock()
@@ -1240,7 +2401,7 @@ class ServerTests(TempBoard):
         return status, json.loads(body), made, listener
 
     def test_the_page_opens_the_boards_to_phones_and_gets_a_qr_code(self):
-        self.assertEqual(json.loads(self.request("GET", f"/{self.name}/api/phone")[2]), {"urls": [], "qr": None})
+        self.assertEqual(json.loads(self.request("GET", f"/{self.name}/api/phone")[2]), {"urls": [], "qr": None, "manage": True})
         self.assertEqual(self.request("POST", f"/{self.name}/api/phone", b"{}", {"Content-Type": "text/plain"})[0], 415)
         status, info, made, listener = self.open_to_phone()
         self.assertEqual(status, 200)
@@ -1269,12 +2430,49 @@ class ServerTests(TempBoard):
         self.assertEqual(status, 403)
         status, _ = self.phone_request(port, "DELETE", f"/{self.name}/api/phone", "box", b"{}", {"Content-Type": "application/json"})
         self.assertEqual(status, 403)
+        self.assertIs(json.loads(self.phone_request(port, "GET", f"/{self.name}/api/phone", "box")[1])["manage"], False)
+
+    def test_phones_that_come_through_tailscale_serve_cannot_open_boards_or_change_phone_access(self):
+        """`tailscale serve` passes phones on to this computer's own address, by its Tailscale name and with X-Forwarded headers."""
+        self.open_to_phone()
+        other = self.other_project()
+        body, json_type = json.dumps({"path": other}).encode("utf-8"), {"Content-Type": "application/json"}
+        for headers in ({"Host": "box.tail1.ts.net"}, {"Host": f"box.tail1.ts.net:{self.port}"}, {"Host": "box"}, {"Host": "100.64.0.7"},
+                        {"Host": f"127.0.0.1:{self.port}", "X-Forwarded-For": "100.64.0.9"}, {"Host": "localhost", "X-Forwarded-Host": "box.tail1.ts.net"}):
+            with self.subTest(headers=headers):
+                status, _, reply = self.request("POST", "/api/boards", body, dict(headers, **json_type))
+                self.assertEqual((status, json.loads(reply)["error"]), (403, "Boards open only from the computer running Kanvas"))
+                status, _, reply = self.request("POST", f"/{self.name}/api/phone", b"{}", dict(headers, **json_type))
+                self.assertEqual((status, json.loads(reply)["error"]), (403, "Only the computer running Kanvas can open it to phones"))
+                status, _, reply = self.request("DELETE", f"/{self.name}/api/phone", b"{}", dict(headers, **json_type))
+                self.assertEqual((status, json.loads(reply)["error"]), (403, "Only the computer running Kanvas can close it to phones"))
+                status, _, reply = self.request("GET", f"/{self.name}/api/phone", headers=headers)
+                self.assertEqual((status, len(json.loads(reply)["urls"]), json.loads(reply)["manage"]), (200, 2, False))
+                status, _, reply = self.request("GET", "/api/boards", headers=headers)
+                self.assertEqual((status, json.loads(reply)["boards"]), (200, [{"name": self.name, "title": "Test"}]))
+        self.assertEqual([b["name"] for b in self.server.board_list()], [self.name])
+        self.assertTrue(self.server.phone)
+        status, headers, data = self.request("GET", self.api, headers={"Host": "box.tail1.ts.net", "X-Forwarded-For": "100.64.0.9"})
+        self.assertEqual((status, data), (200, self.raw()))
+        board = json.loads(data)
+        board["tasks"][3]["state"] = "todo"
+        status, _, _ = self.request("PUT", self.api, json.dumps(board).encode("utf-8"),
+                                    dict(json_type, Host="box.tail1.ts.net", **{"If-Match": headers["ETag"], "X-Forwarded-For": "100.64.0.9"}))
+        self.assertEqual(status, 200)
+        self.assertEqual(self.get("DV-04")["state"], "todo")
+        # This computer itself still opens boards and opens and closes Kanvas to phones, by each of its names.
+        self.assertIs(json.loads(self.request("GET", f"/{self.name}/api/phone")[2])["manage"], True)
+        status, _, reply = self.open_board(other, host=f"localhost:{self.port}")
+        self.assertEqual((status, json.loads(reply)["name"]), (200, "other"))
+        status, _, reply = self.request("DELETE", f"/{self.name}/api/phone", b"{}", dict(json_type, Host="[::1]"))
+        self.assertEqual((status, json.loads(reply)), (200, {"urls": [], "qr": None, "manage": True}))
+        self.assertEqual(self.open_to_phone()[0], 200)
 
     def test_the_page_closes_the_boards_to_phones_again(self):
         _, _, _, listener = self.open_to_phone()
         self.assertEqual(self.request("DELETE", f"/{self.name}/api/phone", b"{}", {"Content-Type": "text/plain"})[0], 415)
         status, _, body = self.request("DELETE", f"/{self.name}/api/phone", b"{}", {"Content-Type": "application/json"})
-        self.assertEqual((status, json.loads(body)), (200, {"urls": [], "qr": None}))
+        self.assertEqual((status, json.loads(body)), (200, {"urls": [], "qr": None, "manage": True}))
         listener.shutdown.assert_called_once_with()
         listener.server_close.assert_called_once_with()
         self.assertEqual(self.request("GET", self.api, headers={"Host": "box.tail1.ts.net"})[0], 403)
@@ -1376,7 +2574,8 @@ class ServerTests(TempBoard):
     def test_browser_writes_are_canonical(self):
         board = json.loads(self.raw())
         board["tasks"][3]["state"] = "todo"
-        status, _, _ = self.request("PUT", self.api, json.dumps(board, indent=None).encode("utf-8"), {"Content-Type": "application/json"})
+        status, _, _ = self.request("PUT", self.api, json.dumps(board, indent=None).encode("utf-8"),
+                                    {"Content-Type": "application/json", "If-Match": kanvas.etag_of(self.raw())})
         self.assertEqual(status, 200)
         text = self.raw().decode("utf-8")
         self.assertEqual(text, kanvas.dumps(kanvas.parse_board(text)))
@@ -1513,14 +2712,24 @@ class ServiceTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, config, True)
         unit = os.path.join(config, "systemd", "user", "kanvas.service")
         out = io.StringIO()
+        running = ("http://127.0.0.1:40000/", kanvas.VERSION)
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}), \
                 mock.patch.object(kanvas, "run_quiet", return_value=(0, "")) as run, \
-                mock.patch.object(kanvas, "find_running", return_value=None), mock.patch.object(sys, "stdout", out):
+                mock.patch.object(kanvas, "find_running", side_effect=[None, running, None]) as find, \
+                mock.patch.object(sys, "stdout", out):
+            calls = mock.Mock()
+            calls.attach_mock(run, "run")
+            calls.attach_mock(find, "find")
             self.assertEqual(kanvas.main(["service", "install", "--tailscale"]), 0)
             with open(unit) as f:
                 self.assertIn("serve --saved --no-open", f.read().replace('"', ""))
-            self.assertEqual(run.call_args_list, [mock.call(["systemctl", "--user", "daemon-reload"]),
-                                                  mock.call(["systemctl", "--user", "enable", "--now", "kanvas.service"])])
+            # The search for a Kanvas started by hand comes after the service's own one stops, and before it starts again.
+            self.assertEqual(calls.mock_calls, [mock.call.run(["systemctl", "--user", "stop", "kanvas.service"]),
+                                                mock.call.find(kanvas.DEFAULT_PORT),
+                                                mock.call.run(["systemctl", "--user", "daemon-reload"]),
+                                                mock.call.run(["systemctl", "--user", "enable", "--now", "kanvas.service"]),
+                                                mock.call.find(kanvas.DEFAULT_PORT)])
+            self.assertIn("Open http://127.0.0.1:40000/\n", out.getvalue())
             with open(kanvas.state_file()) as f:
                 self.assertTrue(json.load(f)["phone"])
             run.return_value = (1, "Failed to connect to bus")
@@ -1532,6 +2741,59 @@ class ServiceTests(unittest.TestCase):
         os.remove(kanvas.state_file())
         self.assertIn("Kanvas now starts when you log in", out.getvalue())
         self.assertIn("Kanvas no longer starts when you log in.", out.getvalue())
+
+    @contextlib.contextmanager
+    def system(self, port):
+        """Service files in a temporary folder, system commands that succeed without running, and Kanvas's ports from `port` on."""
+        folder = tempfile.mkdtemp(prefix="kanvas-config-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        with mock.patch.object(kanvas, "service_paths", return_value=os.path.join(folder, "kanvas.service")), \
+                mock.patch.object(kanvas, "run_quiet", return_value=(0, "")), \
+                mock.patch.object(kanvas, "DEFAULT_PORT", port), mock.patch.object(sys, "stdout", io.StringIO()) as out:
+            yield out
+
+    def kanvas_above_free_ports(self):
+        """Start a Kanvas on a port with the two ports below it free, as one that took port + 2; return its port."""
+        for _ in range(10):
+            server = kanvas.start_server(None, "127.0.0.1", 0, quiet=True)
+            port = server.server_address[1]
+            if kanvas.port_free("127.0.0.1", port - 2) and kanvas.port_free("127.0.0.1", port - 1):
+                break
+            server.server_close()
+        else:
+            self.skipTest("no test port with two free ports below it")
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return port
+
+    def test_status_sees_a_kanvas_on_any_of_its_ports(self):
+        port = self.kanvas_above_free_ports()
+        with self.system(port - 2) as out:
+            self.assertEqual(kanvas.main(["service", "status"]), 0)
+        self.assertIn(f"Running: yes, at http://127.0.0.1:{port}/\n", out.getvalue())
+
+    def test_install_waits_for_the_service_to_answer(self):
+        running = ("http://127.0.0.1:40002/", kanvas.VERSION)
+        with self.system(40000) as out, mock.patch.object(kanvas, "find_running", side_effect=[None, None, None, running]) as find:
+            self.assertEqual(kanvas.main(["service", "install"]), 0)
+        self.assertEqual(find.call_args_list, [mock.call(40000)] * 4)
+        self.assertIn("Open http://127.0.0.1:40002/\n", out.getvalue())
+        with self.system(40000) as out, mock.patch.object(kanvas, "find_running", return_value=None):
+            kanvas.service_install(False, wait=0)
+        self.assertIn("It has not answered yet; `kanvas service status` says when it runs.\n", out.getvalue())
+
+    def test_install_says_when_a_kanvas_started_by_hand_keeps_the_boards(self):
+        """The service's `serve --saved` would join that Kanvas and exit, so nothing serves the boards once it stops."""
+        port = self.kanvas_above_free_ports()
+        for args, again in (([], "kanvas service install"), (["--tailscale"], "kanvas service install --tailscale")):
+            with self.subTest(args=args), self.system(port - 2) as out:
+                self.assertEqual(kanvas.main(["service", "install", *args]), 0)
+                text = out.getvalue()
+                self.assertIn(f"Kanvas already runs at http://127.0.0.1:{port}/, started with `kanvas serve`", text)
+                self.assertIn(f"stop it (Ctrl+C in its terminal) and run `{again}` again.", text)
+                self.assertNotIn("Open ", text)
+        os.remove(kanvas.state_file())
 
 
 
@@ -1709,16 +2971,281 @@ class TailscaleTests(unittest.TestCase):
             self.status({"BackendState": "Running", "Self": {"TailscaleIPs": ["fd7a:115c:a1e0::7"]}})
 
 
+def page_css():
+    with open(os.path.join(ROOT, "kanvas.html"), encoding="utf-8") as f:
+        html = f.read()
+    return html[html.index("<style>") + 7:html.index("</style>")]
+
+
+def css_block(css, head):
+    """The text of the at-rule starting with `head`, through its closing brace."""
+    start = css.index(head)
+    i, depth = css.index("{", start) + 1, 1
+    while depth:
+        depth += {"{": 1, "}": -1}.get(css[i], 0)
+        i += 1
+    return css[start:i]
+
+
+def css_args(text):
+    """`text` split at its top-level commas."""
+    parts, depth, cur = [], 0, ""
+    for c in text:
+        depth += {"(": 1, ")": -1}.get(c, 0)
+        if c == "," and not depth:
+            parts.append(cur.strip())
+            cur = ""
+        else:
+            cur += c
+    return parts + [cur.strip()]
+
+
+def css_rules(css):
+    """(selectors, declarations) of each innermost rule; keyframe steps come out as rules too."""
+    for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        sel = re.sub(r"/\*.*?\*/", "", sel, flags=re.S).strip()
+        yield [p for p in css_args(sel) if p], body
+
+
+def css_rule(css, selector):
+    """The declarations of the rules outside at-rules whose selector list is `selector`, later ones winning."""
+    while "@media" in css:
+        css = css.replace(css_block(css, "@media"), "")
+    found = [body for sels, body in css_rules(css) if ", ".join(sels) == selector]
+    if not found:
+        raise KeyError(selector)
+    return {k.strip(): v.strip() for body in found for k, _, v in (d.partition(":") for d in body.split(";")) if v}
+
+
+def theme_env(css):
+    """The custom properties of the light and the dark theme, as written."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    pick = lambda head: {k: v.strip() for k, v in re.findall(r"(--[\w-]+):\s*([^;{}]+);", css_block(css, head))}
+    light = pick(":root {")
+    return {"light": light, "dark": {**light, **pick('[data-theme="dark"] {')}}
+
+
+def css_color(value, env):
+    """(r, g, b, alpha) of a color written with hex, rgb(), transparent, var() and color-mix(in srgb, ...)."""
+    v = value.strip()
+    if v.startswith("var("):
+        name, _, fallback = v[4:-1].partition(",")
+        return css_color(env.get(name.strip(), fallback), env)
+    if v.startswith("color-mix("):
+        space, *args = css_args(v[10:-1])
+        assert space == "in srgb", space
+        parts = []
+        for arg in args:
+            m = re.match(r"(.+?)\s+(var\([^()]*\)|[\d.]+%)$", arg)
+            color, share = (m.group(1), m.group(2)) if m else (arg, None)
+            share = env[share[4:-1]] if share and share.startswith("var(") else share
+            parts.append((css_color(color, env), float(share[:-1]) / 100 if share else None))
+        (a, p), (b, q) = parts
+        p = p if p is not None else 1 - q if q is not None else .5
+        q = 1 - p if q is None else q
+        alpha = a[3] * p + b[3] * q
+        return tuple((x * a[3] * p + y * b[3] * q) / alpha if alpha else 0 for x, y in zip(a, b))[:3] + (alpha,)
+    if v == "transparent":
+        return (0, 0, 0, 0)
+    m = re.match(r"rgb\((\d+) (\d+) (\d+)(?: / ([\d.]+))?\)$", v)
+    if m:
+        return tuple(float(x) for x in m.groups()[:3]) + (float(m.group(4) or 1),)
+    h = v.lstrip("#")
+    h = "".join(c * 2 for c in h) if len(h) == 3 else h
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) + (1,)
+
+
+def over(top, under):
+    return tuple(x * top[3] + y * (1 - top[3]) for x, y in zip(top[:3], under[:3])) + (1,)
+
+
+def theme_colors(css):
+    """The hex color variables of the light and the dark theme."""
+    pick = lambda head: dict(re.findall(r"--([\w-]+):\s*(#[0-9a-f]{3,6})\b", css_block(css, head)))
+    light = pick(":root {")
+    return {"light": light, "dark": {**light, **pick('[data-theme="dark"] {')}}
+
+
+def linear_rgb(color):
+    if isinstance(color, str):
+        h = color.lstrip("#")
+        h = "".join(c * 2 for c in h) if len(h) == 3 else h
+        color = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+    return [v / 12.92 if v <= .04045 else ((v + .055) / 1.055) ** 2.4 for v in (c / 255 for c in color[:3])]
+
+
+def contrast(a, b):
+    """The WCAG contrast ratio of two colors."""
+    lum = lambda c: sum(w * v for w, v in zip((.2126, .7152, .0722), linear_rgb(c)))
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + .05) / (lo + .05)
+
+
+def oklab_distance(a, b):
+    def lab(c):
+        r, g, b = linear_rgb(c)
+        l, m, s = (x ** (1 / 3) for x in (.4122214708 * r + .5363325363 * g + .0514459929 * b,
+                                          .2119034982 * r + .6806995451 * g + .1073969566 * b,
+                                          .0883024619 * r + .2817188376 * g + .6299787005 * b))
+        return (.2104542553 * l + .7936177850 * m - .0040720468 * s,
+                1.9779984951 * l - 2.4285922050 * m + .4505937099 * s,
+                .0259040371 * l + .7827717662 * m - .8086757660 * s)
+    return sum((x - y) ** 2 for x, y in zip(lab(a), lab(b))) ** .5
+
+
+class StyleTests(unittest.TestCase):
+    MOVES = r"\b(scale|translate|rotate|transform|background-position|stroke-dashoffset|flex-grow)\b"
+
+    def test_reduced_motion_holds_everything_still(self):
+        css = page_css()
+        still = css_block(css, "@media (prefers-reduced-motion: reduce)")
+        rest = css.replace(still, "")
+        keyframes = set(re.findall(r"@keyframes ([\w-]+)", rest))
+        compound = lambda s: set(re.findall(r":is\([^)]*\)|::?[\w-]+|[.#][\w-]+|^[a-z]+", s))
+        # A rule in the reduced-motion block covers a selector when it names a part of everything the selector names.
+        covered = lambda sel, prop: any(compound(s) <= compound(sel) for sels, body in css_rules(still) if re.search(prop, body) for s in sels)
+        for sels, body in css_rules(rest):
+            for value in re.findall(r"(?:^|;)\s*animation:([^;]+)", body):
+                name = next((w for w in value.split() if w in keyframes), None)
+                for sel in sels if name else ():
+                    with self.subTest(selector=sel, animation=name):
+                        if "infinite" in value:
+                            self.assertTrue(covered(sel, r"animation:\s*none"), "loops must stop")
+                        else:
+                            # One-shot animations keep their name, so animationend still clears the classes that start them.
+                            self.assertIn(f"@keyframes {name} ", still)
+                            self.assertNotRegex(css_block(still, f"@keyframes {name} "), self.MOVES)
+            for value in re.findall(r"(?:^|;)\s*transition:([^;]+)", body):
+                if re.search(self.MOVES, value):
+                    for sel in sels:
+                        with self.subTest(selector=sel, transition=value):
+                            self.assertTrue(covered(sel, r"transition:(?![^;]*" + self.MOVES + ")"), "moving transitions must stop")
+
+    def test_groups_past_the_tenth_get_colors_of_their_own(self):
+        first_ten = ["#6366f1", "#0ea5e9", "#14b8a6", "#f59e0b", "#ec4899", "#84cc16", "#a855f7", "#f43f5e", "#06b6d4", "#78716c"]
+        agents = ["claude", "codex", "cursor", "cursor-visual", "gemini", "aider"]
+        out = json.loads(run_html_js(self, "console.log(JSON.stringify([GROUP_COLORS, input.map(colorFor)]))", json.dumps(agents)))
+        groups, agent_colors = out
+        self.assertEqual(groups[:10], first_ten, "boards keep their groups' colors")
+        self.assertGreaterEqual(len(groups), 12)
+        self.assertEqual(len(set(groups)), len(groups))
+        for name, color in zip(agents, agent_colors):
+            n = 0
+            for ch in name:
+                n = (n * 31 + ord(ch)) & 0xFFFFFFFF
+            self.assertEqual(color, first_ten[n % 10], f"{name} keeps its color")
+        themes = theme_colors(page_css())
+        states = [t[k] for t in themes.values() for k in ("proposed", "todo", "blocked", "doing", "review", "done", "yolo", "accent")]
+        for color in groups[10:]:
+            with self.subTest(color=color):
+                for theme, tokens in themes.items():
+                    self.assertGreaterEqual(contrast(color, tokens["surface"]), 3, f"tags read on {theme} cards")
+                self.assertGreaterEqual(min(oklab_distance(color, s) for s in states), .1, "unlike every state color")
+                self.assertGreaterEqual(min(oklab_distance(color, g) for g in groups if g != color), .1, "unlike every other group")
+
+    def test_text_reaches_wcag_aa_in_both_themes(self):
+        css = page_css()
+        rule = lambda selector: css_rule(css, selector)
+        states = {s: {k: v for k, v in rule(f".s-{s}").items() if k.startswith("--")} for s in ("proposed", "todo", "blocked", "doing", "review", "done")}
+        hover = float(re.search(r"brightness\(([\d.]+)\)", rule("button.primary:hover")["filter"]).group(1))
+        brighter = lambda c: tuple(min(255, v * hover) for v in c[:3]) + (1,)
+        stripes = css_args(re.search(r"repeating-linear-gradient\((.*)\)", rule(':is(.card, .kcard).s-blocked, [data-theme="dark"] :is(.card, .kcard).s-blocked')["background"]).group(1))[1:]
+        for theme, env in theme_env(css).items():
+            color = lambda value, **more: css_color(value, {**env, **more})
+
+            def check(what, fg, under, need=4.5):
+                with self.subTest(theme=theme, what=what):
+                    self.assertGreaterEqual(contrast(fg, under), need)
+
+            surface, bg = color("var(--surface)"), color("var(--bg)")
+            grounds = {"surface": surface, "surface-2": color("var(--surface-2)"), "bg": bg, "lane": over(color("var(--lane)"), bg)}
+            for token in ("text", "muted", "faint"):
+                for name, ground in grounds.items():
+                    check(f"--{token} on {name}", color(f"var(--{token})"), ground)
+            check("placeholders", color(rule("::placeholder")["color"]), surface)
+            for name in ("surface", "surface-2"):
+                check(f"danger text on {name}", color(rule("button.danger")["color"]), grounds[name])
+            for selector in ("button.primary", "button.danger.primary", "#inbox b", ".toast.error"):
+                fill = color(rule(selector)["background"])
+                check(selector, color(rule(selector)["color"]), fill)
+                if selector.startswith("button"):
+                    check(f"{selector} on hover", color(rule(selector)["color"]), brighter(fill))
+            asking = rule(":is(.card, .kcard).asking .badge")
+            check("waiting for you", color(asking["color"], **{"--c": "var(--accent)"}), color(asking["background"], **{"--c": "var(--accent)"}))
+            badge, toast_badge, filled, button = rule(".badge"), rule(".toast .badge"), rule(":is(.card, .kcard):is(.s-doing, .s-review) .badge"), rule("button.primary.to")
+            for state, own in states.items():
+                cards = [color(rule(".card")["background"], **own)]
+                if state == "blocked":
+                    cards = [color(re.sub(r"(\s+[\d.]+(px)?)+$", "", stop), **own) for stop in stripes]
+                for card in cards + [surface]:
+                    check(f"{state} badge", color(badge["color"], **own), over(color(badge["background"], **own), card))
+                    check(f"YOLO mark on {state}", color(rule(".yolo-mark")["color"]), card, 3)
+                mine = {**own, "--c-on": toast_badge["--c-on"]}
+                check(f"{state} badge in a toast", color(toast_badge["color"], **mine), over(color(toast_badge["background"], **mine), color(rule(".toast")["background"])))
+                if state in ("doing", "review"):
+                    check(f"filled {state} badge", color(filled["color"], **own), color(filled["background"], **own))
+                if "--c-fill" in own:
+                    fill = color(button["background"], **own)
+                    check(f"button to {state}", color(button["color"], **own), fill)
+                    check(f"button to {state} on hover", color(button["color"], **own), brighter(fill))
+        # Opacity would take the text of the zoom bar and of empty state chips below these ratios.
+        for sels, body in css_rules(css):
+            if re.search(r"(^|;)\s*opacity:\s*(?!1\b)", body):
+                for sel in sels:
+                    subject = re.sub(r"\([^()]*\)", "", re.sub(r"\([^()]*\)", "", sel)).split()[-1]
+                    self.assertNotRegex(subject, r"^(\.zoombar|\.schip\.zero)(:[\w-]+)*$", f"{sel} fades its text")
+
+    def test_states_read_apart_without_color(self):
+        css = page_css()
+        rule = lambda selector: css_rule(css, selector)
+        states = {s: {k: v for k, v in rule(f".s-{s}").items() if k.startswith("--")} for s in ("proposed", "blocked", "todo", "doing", "review", "done")}
+        marks = [own.get("--mark") for own in states.values()]
+        self.assertTrue(all(marks), "every state has a mark")
+        self.assertEqual(len(set(marks)), len(marks), "each mark has a shape of its own")
+        self.assertIn("var(--mark)", rule(".dot")["mask"])
+        for theme, env in theme_env(css).items():
+            color = lambda value, **more: css_color(value, {**env, **more})
+            surface_2 = color("var(--surface-2)")
+            for state, own in states.items():
+                grounds = {
+                    "surface": color("var(--surface)"), "surface-2": surface_2, "a chosen tab": color(rule(".track > button.on")["background"]),
+                    "a chip on hover": over(color(rule(".track > button:hover")["background"]), surface_2),
+                    "the chosen chip": color(rule(".track > .schip.on")["background"], **own),
+                    "an arrow menu row": color(rule(".ctx-menu .ctx-task")["background"], **own),
+                    "an arrow menu row on hover": color(rule(".ctx-menu .ctx-task:hover, .ctx-menu .ctx-task:focus-visible")["background"], **own),
+                    "a picker chip": color(rule(".pick-chip")["background"], **own),
+                    "the picker's active option": color(rule(".pick-opt.on")["background"]),
+                    "a column under a drag": color(rule(".col.drop")["background"]),
+                }
+                fgs = {"mark": (color(rule(".dot")["background"], **own), grounds)}
+                fgs["mark of an empty chip"] = (color(rule(".schip.zero:not(.on) .dot")["background"]), {k: v for k, v in grounds.items() if k != "the chosen chip"})
+                if state == "done":
+                    fgs["hidden finished tasks"] = (color(rule(".schip.off .icon")["color"], **own), grounds)
+                for what, (fg, under) in fgs.items():
+                    for where, ground in under.items():
+                        with self.subTest(theme=theme, state=state, mark=what, on=where):
+                            self.assertGreaterEqual(contrast(fg, ground), 3)
+
+
 class LayoutTests(unittest.TestCase):
     """The graph layout must not get more cluttered. Lower the ceilings when it improves;
-    `python tests/layout_stats.py -v` shows the current numbers and what causes them."""
+    `python tests/layout_stats.py -v` shows the current numbers and what causes them, and
+    `--unfolded` the same with every lane's finished tasks shown."""
 
-    # (board, flows down): (crossing arrow pairs, arrows running under cards, bends)
+    # (board, flows down, finished tasks unfolded): (crossing arrow pairs, arrows running under cards, bends, space over card area)
     CEILINGS = {
-        ("sample.json", False): (3, 0, 12),
-        ("sample.json", True): (3, 0, 12),
-        ("tetris.json", False): (22, 0, 26),
-        ("tetris.json", True): (22, 0, 26),
+        ("sample.json", False, False): (3, 0, 12, 3.8),
+        ("sample.json", True, False): (3, 0, 12, 3.8),
+        ("tetris.json", False, False): (18, 0, 26, 6.1),
+        ("tetris.json", True, False): (18, 0, 26, 6.7),
+        ("phases.json", False, False): (3, 0, 14, 4.5),
+        ("phases.json", True, False): (3, 0, 14, 4.7),
+        ("sample.json", False, True): (3, 0, 12, 3.8),
+        ("sample.json", True, True): (3, 0, 12, 3.8),
+        ("tetris.json", False, True): (18, 0, 26, 6.1),
+        ("tetris.json", True, True): (18, 0, 26, 6.7),
+        ("phases.json", False, True): (5, 0, 21, 5.5),
+        ("phases.json", True, True): (5, 0, 21, 6.7),
     }
 
     def setUp(self):
@@ -1727,12 +3254,50 @@ class LayoutTests(unittest.TestCase):
 
     def test_clutter_stays_under_ceilings(self):
         import layout_stats
-        for (path, vertical), m in layout_stats.measure(layout_stats.DEFAULT_BOARDS).items():
-            crossings, behind, bends = self.CEILINGS[(os.path.basename(path), vertical)]
-            with self.subTest(board=os.path.basename(path), vertical=vertical):
-                self.assertLessEqual(m["crossings"], crossings)
-                self.assertLessEqual(m["behind"], behind)
-                self.assertLessEqual(m["bends"], bends)
+        for unfolded in (False, True):
+            for (path, vertical), m in layout_stats.measure(layout_stats.DEFAULT_BOARDS, unfolded=unfolded).items():
+                crossings, behind, bends, space = self.CEILINGS[(os.path.basename(path), vertical, unfolded)]
+                with self.subTest(board=os.path.basename(path), vertical=vertical, unfolded=unfolded):
+                    self.assertLessEqual(m["crossings"], crossings)
+                    self.assertLessEqual(m["behind"], behind)
+                    self.assertLessEqual(m["bends"], bends)
+                    self.assertLessEqual(m["space"], space)
+
+    def test_lanes_that_share_a_track_stay_apart(self):
+        code = (
+            "const out = [];\n"
+            "for (const text of input) {\n"
+            "  const b = normalize(JSON.parse(text)), open = b.tasks.filter((t) => t.state !== 'done'), fold = foldDone(b.tasks, b, new Set());\n"
+            "  for (const vertical of [false, true]) for (const levelGap of [30, 50, 70, 500]) for (const manual of [false, true]) for (const [tasks, stubs] of [[b.tasks, []], [open, []], [fold.tasks, fold.stubs]]) {\n"
+            "    const L = layout(tasks, b, { vertical, levelGap, manual, emptyLanes: tasks !== open, stubs });\n"
+            "    const box = (l) => [l.left, l.top, l.left + l.width, l.top + l.height];\n"
+            "    const where = `${b.title} ${vertical ? 'down' : 'right'} ${levelGap}${manual ? ' manual' : ''}`;\n"
+            "    L.lanes.forEach((l, i) => L.lanes.slice(i + 1).forEach((o) => {\n"
+            "      const [a, c] = [box(l), box(o)];\n"
+            "      if (a[0] < c[2] && c[0] < a[2] && a[1] < c[3] && c[1] < a[3]) out.push(`${where}: lanes ${l.id} and ${o.id} overlap`);\n"
+            "    }));\n"
+            "    for (const t of tasks) {\n"
+            "      const p = L.pos.get(key(t.id)), l = L.lanes.find((x) => x.id === (b.groups.some((g) => g.id === t.group) ? t.group : null)), r = box(l);\n"
+            "      if (p.x < r[0] || p.y < r[1] + LANE_HEAD || p.x + CW > r[2] || p.y + CH > r[3]) out.push(`${where}: ${t.id} is outside its lane`);\n"
+            "    }\n"
+            "    for (const s of L.stubs) {\n"
+            "      const r = box(L.lanes.find((x) => x.id === s.group));\n"
+            "      if (s.x < r[0] || s.y < r[1] + LANE_HEAD || s.x + CW > r[2] || s.y + STUB > r[3]) out.push(`${where}: the stub of ${s.group} is outside its lane`);\n"
+            "    }\n"
+            "    const boxes = [...[...L.pos].map(([k, p]) => [k, p.x, p.y, CH]), ...L.stubs.map((s) => [s.key, s.x, s.y, STUB])];\n"
+            "    boxes.forEach((a, i) => boxes.slice(i + 1).forEach((c) => {\n"
+            "      if (a[1] < c[1] + CW && c[1] < a[1] + CW && a[2] < c[2] + c[3] && c[2] < a[2] + a[3]) out.push(`${where}: ${a[0]} and ${c[0]} overlap`);\n"
+            "    }));\n"
+            "  }\n"
+            "}\n"
+            "process.stdout.write(JSON.stringify(out));"
+        )
+        import layout_stats
+        texts = []
+        for path in layout_stats.DEFAULT_BOARDS:
+            with open(path, encoding="utf-8") as f:
+                texts.append(f.read())
+        self.assertEqual(json.loads(run_html_js(self, code, json.dumps(texts))), [])
 
     def test_hiding_finished_tasks_drops_groups_with_nothing_left(self):
         code = (
@@ -1746,6 +3311,87 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(out["shown"], out["all"])
         self.assertEqual(out["hidden"], out["all"][1:])
         self.assertTrue(out["all"][0].startswith("RS:"))
+
+    def test_finished_tasks_fold_into_a_stub_per_lane(self):
+        board = {"kanvas": 1, "title": "Fold", "groups": [{"id": "A", "name": "Alpha"}, {"id": "B", "name": "Beta"}, {"id": "C", "name": "Gamma"}], "tasks": [
+            task("A-1", "done", "A"), task("A-2", "done", "A", ["A-1"]), task("A-3", "done", "A", ["A-2"]),
+            task("A-4", "todo", "A", ["A-3"]), task("A-5", "todo", "A"),
+            task("B-1", "done", "B"), task("B-2", "done", "B"), task("B-3", "todo", "B", ["B-1", "A-2"]),
+            task("C-1", "done", "C"), task("C-2", "done", "C"), task("C-3", "done", "C", ["C-1"]),
+            task("X-1", "done"), task("X-2", "done"), task("X-3", "done"),
+        ]}
+        code = (
+            "const b = normalize(input), out = {};\n"
+            "const run = (name, open, keep, opts = {}) => {\n"
+            "  const f = foldDone(b.tasks, b, new Set(open), keep), L = layout(f.tasks, b, { vertical: false, levelGap: 70, stubs: f.stubs, ...opts });\n"
+            "  const stub = (g) => L.stubs.find((s) => s.group === g), lane = (g) => L.lanes.find((l) => l.id === g);\n"
+            "  const inLane = (s) => { const l = lane(s.group); return s.x >= l.left && s.y >= l.top + LANE_HEAD && s.x + CW <= l.left + l.width && s.y + STUB <= l.top + l.height; };\n"
+            "  const leads = (s) => [...L.pos].filter(([k]) => b.tasks.some((t) => key(t.id) === k && (t.group || null) === s.group) && L.pos.get(k).x === s.x).every(([, p]) => p.y >= s.y + STUB + GAP_Y);\n"
+            "  out[name] = { shown: f.tasks.map((t) => t.id), stubs: L.stubs.map((s) => [s.group, s.ids.length, s.folded, s.open]),\n"
+            "    edges: L.edges.filter((e) => !e.implied).map((e) => `${e.from}>${e.to}`).sort(), inLanes: L.stubs.every(inLane), lead: L.stubs.every(leads),\n"
+            "    first: L.stubs.every((s) => s.x === L.pos.get('A-5').x), empty: L.lanes.filter((l) => l.empty).map((l) => l.id), behind: layoutMetrics(L).behind };\n"
+            "};\n"
+            "run('folded', [], null);\n"
+            "run('manual', [], null, { manual: true });\n"
+            "run('down', [], null, { vertical: true });\n"
+            "run('open', ['A'], null);\n"
+            "run('kept', [], 'C-3');\n"
+            "out.hidden = foldDone(b.tasks.filter((t) => t.state !== 'done'), b, new Set()).stubs.length;\n"
+            "process.stdout.write(JSON.stringify(out));"
+        )
+        out = json.loads(run_html_js(self, code, json.dumps(board)))
+        folded = out["folded"]
+        # Lanes with three or more finished tasks fold them; Beta, with two, shows its own.
+        self.assertEqual(folded["shown"], ["A-4", "A-5", "B-1", "B-2", "B-3"])
+        self.assertEqual(folded["stubs"], [["A", 3, ["A-1", "A-2", "A-3"], False], ["C", 3, ["C-1", "C-2", "C-3"], False], [None, 3, ["X-1", "X-2", "X-3"], False]])
+        # Arrows from folded tasks go with them, so A-4 starts its lane, after the stub.
+        self.assertEqual(folded["edges"], ["B-1>B-3"])
+        self.assertEqual(folded["empty"], [])
+        for name in ("folded", "manual", "down", "open", "kept"):
+            with self.subTest(name):
+                self.assertTrue(out[name]["inLanes"])
+                self.assertTrue(out[name]["lead"])
+                self.assertEqual(out[name]["behind"], 0)
+        self.assertTrue(folded["first"])
+        self.assertEqual(out["manual"]["shown"], folded["shown"])
+        # An opened lane shows its finished tasks and their arrows, and keeps its stub to fold them again.
+        self.assertEqual(out["open"]["stubs"][0], ["A", 3, [], True])
+        self.assertEqual(out["open"]["edges"], ["A-1>A-2", "A-2>A-3", "A-2>B-3", "A-3>A-4", "B-1>B-3"])
+        # The task the human selected stays shown in a folded lane.
+        self.assertIn("C-3", out["kept"]["shown"])
+        self.assertEqual(out["kept"]["stubs"][1], ["C", 3, ["C-1", "C-2"], False])
+        # With finished tasks hidden there is nothing to fold.
+        self.assertEqual(out["hidden"], 0)
+
+    def test_graph_opens_readable_on_the_work_that_waits(self):
+        code = (
+            "const b = normalize(input), L = layout(b.tasks, b, { vertical: false, levelGap: 70 }), ix = indexOf(b);\n"
+            "const ids = (s) => b.tasks.filter((t) => vstateIn(ix, t) === s).map((t) => key(t.id));\n"
+            "const room = (w, h) => ({ left: 24, top: 24, right: 24 + w, bottom: 24 + h });\n"
+            "const shown = (r, v, ks) => ks.every((k) => { const p = L.pos.get(k), x = v.x + p.x * v.k, y = v.y + p.y * v.k;\n"
+            "  return x >= r.left && y >= r.top && x + CW * v.k <= r.right && y + CH * v.k <= r.bottom; });\n"
+            "const tiers = [ids('review'), ids('doing'), ids('proposed')], out = {};\n"
+            "for (const [name, w, h] of [['small', 0.5, 0.5], ['narrow', 0.2, 0.6]]) {\n"
+            "  const r = room(L.width * w, L.height * h), v = readableView(r, L, tiers, 0.7);\n"
+            "  out[name] = { k: v.k, review: shown(r, v, tiers[0]), doing: shown(r, v, tiers[1]), proposed: shown(r, v, tiers[2]) };\n"
+            "}\n"
+            "const tall = readableView(room(L.width * 0.9, L.height * 0.5), L, tiers, 0.7);\n"
+            "const all = readableView(room(L.width * 0.2, L.height * 0.6), L, [b.tasks.map((t) => key(t.id))], 0.7);\n"
+            "out.tall = { k: tall.k, x: tall.x, review: shown(room(L.width * 0.9, L.height * 0.5), tall, tiers[0]) };\n"
+            "out.all = { x: all.x, y: all.y };\n"
+            "process.stdout.write(JSON.stringify(out));"
+        )
+        with open(os.path.join(ROOT, "examples", "sample.json"), encoding="utf-8") as f:
+            out = json.loads(run_html_js(self, code, f.read()))
+        # Too large to fit at a readable zoom: the work waiting for the human comes first, then what fits with it.
+        self.assertEqual(out["small"], {"k": 0.7, "review": True, "doing": True, "proposed": False})
+        self.assertEqual((out["narrow"]["k"], out["narrow"]["review"], out["narrow"]["proposed"]), (0.7, True, False))
+        # A tall graph fits its width and scrolls to the review.
+        self.assertAlmostEqual(out["tall"]["k"], 0.9)
+        self.assertAlmostEqual(out["tall"]["x"], 24)
+        self.assertTrue(out["tall"]["review"])
+        # A focus larger than the room shows its start.
+        self.assertEqual(out["all"], {"x": 24, "y": 24})
 
     def test_manual_layout_keeps_file_order(self):
         import layout_stats
