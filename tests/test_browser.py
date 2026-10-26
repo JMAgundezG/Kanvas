@@ -259,7 +259,10 @@ class BrowserSmokeTests(unittest.TestCase):
             if chrome.poll() is not None:
                 self.fail(f"Chrome exited with {chrome.returncode}:\n{read(log)}")
             active = os.path.join(profile, "DevToolsActivePort")
-            lines = read(active).split() if os.path.isfile(active) else []
+            try:
+                lines = read(active).split()
+            except OSError:  # not written yet, or on Windows still open for writing
+                lines = []
             if len(lines) == 2:
                 return lines[0]
             printed = re.search(r"DevTools listening on ws://[^/]+:(\d+)/", read(log))
