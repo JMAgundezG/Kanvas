@@ -1183,7 +1183,9 @@ class ServerTests(TempBoard):
         other = self.other_project()
         code, out, err = self.run_cli("serve", "--no-open", "--port", str(self.port), cwd=os.path.dirname(other))
         self.assertIn(f"Opened in the Kanvas already running: http://127.0.0.1:{self.port}/other/", out)
-        self.assertEqual([b["path"] for b in json.loads(self.request("GET", "/api/boards")[2])["boards"]], [self.path, other])
+        # The second project's own run sees its folder with symlinks resolved, as /private/var on macOS.
+        self.assertEqual([os.path.realpath(b["path"]) for b in json.loads(self.request("GET", "/api/boards")[2])["boards"]],
+                         [os.path.realpath(self.path), os.path.realpath(other)])
 
     def phone_server(self):
         """A listener like the one `serve --tailscale` adds, here on another local port."""
@@ -1469,7 +1471,8 @@ class RememberTests(TempBoard):
                     os.environ.pop("KANVAS_STATE_DIR")
                 if not env:
                     os.environ.pop("XDG_STATE_HOME", None)
-                self.assertEqual(kanvas.state_file(), expected)
+                # Run on Windows, the other systems' paths come out with backslashes.
+                self.assertEqual(os.path.normpath(kanvas.state_file()), os.path.normpath(expected))
 
 
 class ServiceTests(unittest.TestCase):
