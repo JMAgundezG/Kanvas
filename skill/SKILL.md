@@ -64,10 +64,10 @@ When asked to plan, get to know the work first: what is already there (code, doc
 ```bash
 python .agents/skills/kanvas/kanvas.py batch <<'EOF'
 {
-  "groups": ["Research", "Backend"],
+  "groups": ["Training", "Flight tests"],
   "tasks": [
-    {"title": "Compare weather APIs", "group": "Research", "desc": "Free tier, hourly data, caching terms"},
-    {"title": "Fetch forecasts", "group": "Backend", "deps": ["Compare weather APIs"]}
+    {"title": "Train the first policy", "group": "Training", "desc": "Flies random obstacle courses in the simulator through every gate, in wind up to 8 m/s"},
+    {"title": "First autonomous flight", "group": "Flight tests", "deps": ["Train the first policy"]}
   ]
 }
 EOF
@@ -118,10 +118,10 @@ Notes and proposals record your name, so the human can tell who did what. Sign w
 Commands that take text also accept `--stdin` and `--file PATH`, which read UTF-8 on every platform. They give the plan for `start`, the summary for `finish`, the note for `pause` and `note`, the question for `ask`, and the description for `propose` and `edit`; the `-m` note of `edit` is an argument only. Use a heredoc for multi-line summaries:
 
 ```bash
-python .agents/skills/kanvas/kanvas.py finish DV-03 --stdin <<'EOF'
-Failed forecast requests now retry three times, then show the cached forecast marked as stale.
-- To try it: go offline and reload; the forecast stays, with a "stale" label
-- 6 new tests; the suite passes
+python .agents/skills/kanvas/kanvas.py finish TR-02 --stdin <<'EOF'
+The policy flies the course on its own: 92 of 100 random courses through every gate, 3 crashes, 5 too slow.
+- To see it: `make replay` plays ten flights, the three crashes among them
+- All three crashes happen in gusts above 7 m/s: try it on the real drone in calm weather, or train on stronger wind first?
 EOF
 ```
 

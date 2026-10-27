@@ -132,6 +132,14 @@ class FormatTests(unittest.TestCase):
         text = self.sample()
         self.assertEqual(kanvas.dumps(kanvas.parse_board(text)), text)
 
+    def test_the_example_boards_are_valid_and_canonical(self):
+        for name in sorted(os.listdir(os.path.join(ROOT, "examples"))):
+            with self.subTest(name), open(os.path.join(ROOT, "examples", name), encoding="utf-8") as f:
+                text = f.read()
+                board = kanvas.parse_board(text)
+                self.assertEqual(kanvas.dumps(board), text)
+                self.assertEqual(kanvas.problems(board), ([], []))
+
     def test_short_string_arrays_stay_on_one_line(self):
         board = kanvas.new_board("t")
         board["tasks"] = [task("A-01"), task("A-02", deps=["A-01"]), task("A-03", deps=["A-01", "A-02"])]

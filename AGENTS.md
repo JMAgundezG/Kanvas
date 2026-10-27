@@ -10,6 +10,7 @@ Kanvas is a task board shared by humans and AI agents. This file is for agents a
 | `kanvas.html` | The whole browser board in one file: CSS, markup and JavaScript, no build step |
 | `skill/SKILL.md` | Agent skill that `init` installs into projects |
 | `examples/sample.json` | Demo board, also used by the tests |
+| `examples/drone.json` | The board in the README, its screenshots and the skill's examples |
 | `tests/test_kanvas.py` | Test suite (`unittest`) |
 | `tests/layout_stats.py`, `tests/fixtures/` | Graph clutter measurements and the boards they run on |
 | `pyproject.toml` | The `kanvas-board` package, which installs the `kanvas` command. Its version comes from `VERSION` in `kanvas.py`, and the `VERSION` file must match. hatchling and hatch-fancy-pypi-readme, which points the README's relative links at GitHub for PyPI, are needed only to build it |

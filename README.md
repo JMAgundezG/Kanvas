@@ -9,7 +9,7 @@ A task board you share with your AI coding agents. Agents plan and report throug
 
 One JSON file, one Python script, one HTML page. No accounts, no build step, no dependencies.
 
-![The dependency graph of a sample project](img/graph.png)
+![The dependency graph of a project that trains a drone to fly itself: simulation, training, evaluation and flight tests](img/graph.png)
 
 ## Why
 
@@ -143,7 +143,7 @@ Agents may propose tasks and groups, start ready tasks, finish or pause tasks in
 - **Right-click menus.** On a card: state actions, a new task that depends on it or blocks it, adding and removing dependencies, copying the ID, deleting. On an arrow (left or right click): the two tasks it connects are highlighted and shown in the menu; click either one to open it, or remove the connection. On empty space: a new task in that group, a new group, or deleting that group (its tasks stay without a group unless you choose to delete them too).
 - **Undo and redo.** Ctrl+Z undoes your last change in the browser, Ctrl+Shift+Z or Ctrl+Y redoes it, and the arrows next to New task do the same. On a Mac, these and the page's other Ctrl shortcuts use ⌘, as the page shows. The toast that confirms a change has an Undo button for that change. Changes agents made in the meantime are kept: an undo only touches what your change touched, and refuses if an agent has changed that since. Inside a text field, Ctrl+Z undoes typing as usual.
 - **YOLO.** "YOLO up to here…" on a card (right-click menu or task panel) hands that task and everything it depends on to the agents: the tasks they finish on the way are done without review. The YOLO task itself comes back to you for review, so a YOLO run ends with one review of the result, and YOLO stops applying once that task is in review. YOLO on a task further along takes over the chain: the YOLO marks inside it go, so only the last task comes back for review. Turning it on approves the chain's current proposals and marks the other tasks waiting for review as done. A proposal an agent links into the chain later waits for your approval; one you link yourself is approved with the link. The task carries a YOLO tag and the tasks it covers a lightning icon; the same menu turns it off.
-- **Everything else.** Filter by state, search (press `/`), hide finished work, groups with their own ID prefixes (from the menu on the board name), light, dark or system theme, keyboard shortcuts (press `?`), arrow keys to move from card to card and Enter to move into its panel (Tab goes round the panel, Escape comes back out), and links: `#BE-02` in the URL opens that task.
+- **Everything else.** Filter by state, search (press `/`), hide finished work, groups with their own ID prefixes (from the menu on the board name), light, dark or system theme, keyboard shortcuts (press `?`), arrow keys to move from card to card and Enter to move into its panel (Tab goes round the panel, Escape comes back out), and links: `#TR-02` in the URL opens that task.
 
 ![The board view in dark mode](img/board-dark.png)
 
@@ -246,26 +246,26 @@ Writes take a short lock and replace the file atomically, so several agents and 
 ```json
 {
   "kanvas": 1,
-  "title": "Weather dashboard",
+  "title": "Learning to fly",
   "groups": [
     {
-      "id": "BE",
-      "name": "Backend"
+      "id": "TR",
+      "name": "Training"
     }
   ],
   "tasks": [
     {
-      "id": "BE-02",
-      "title": "Fetch and cache forecasts",
+      "id": "TR-02",
+      "title": "Train the first policy",
       "state": "review",
-      "group": "BE",
-      "deps": ["BE-01"],
-      "desc": "`GET /forecast` proxies Open-Meteo.",
+      "group": "TR",
+      "deps": ["TR-01", "SM-03"],
+      "desc": "- [x] Passes every gate on most random courses\n- [x] Copes with wind up to 8 m/s",
       "notes": [
         {
-          "at": "2026-10-19T11:05:00Z",
-          "by": "claude",
-          "text": "Done: responses cached for 10 minutes; 23 tests pass."
+          "at": "2026-10-25T08:20:00Z",
+          "by": "codex",
+          "text": "The policy flies the course on its own: 92 of 100 random courses through every gate."
         }
       ]
     }
@@ -273,7 +273,7 @@ Writes take a short lock and replace the file atomically, so several agents and 
 }
 ```
 
-States are `proposed`, `todo`, `doing`, `review` and `done`; blocked is computed. `"yolo": true` on a task puts it and everything it depends on under YOLO. `"at"` and `"by"` on a task say when it was created and by whom: the agent that proposed it, or `"human"` for tasks made in the browser. A note edited in the browser gets an `"edited"` time next to its original `"at"`. A new task takes the highest number in its group plus one, so when the last task of a group is deleted or rejected, the next new task gets its ID. The CLI and the browser write the same canonical formatting, so diffs show only real changes. Unknown fields are preserved. See [`examples/sample.json`](examples/sample.json) for a complete board.
+States are `proposed`, `todo`, `doing`, `review` and `done`; blocked is computed. `"yolo": true` on a task puts it and everything it depends on under YOLO. `"at"` and `"by"` on a task say when it was created and by whom: the agent that proposed it, or `"human"` for tasks made in the browser. A note edited in the browser gets an `"edited"` time next to its original `"at"`. A new task takes the highest number in its group plus one, so when the last task of a group is deleted or rejected, the next new task gets its ID. The CLI and the browser write the same canonical formatting, so diffs show only real changes. Unknown fields are preserved. See [`examples/drone.json`](examples/drone.json) for a complete board.
 
 ## Migrating from Kanvas 0.x (Obsidian)
 
