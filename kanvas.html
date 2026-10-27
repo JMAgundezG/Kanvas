@@ -1780,16 +1780,30 @@ function layoutIn(tasks, b, { vertical, levelGap, manual = false, emptyLanes = t
     const top = Math.min(...ks.map((k) => chosen.offsets.get(k)));
     for (const k of ks) at.set(k, Math.round(chosen.offsets.get(k) - top));
   }
-  // A lane narrower than its track moves across it toward the lanes its arrows lead to.
+  // A lane narrower than its track moves across it to straighten the most arrows to other lanes,
+  // those from its dependencies first. Lanes go in flow order, so each follows the one it waits on.
   place();
   for (const track of tracks) {
     if (track.length < 2) continue;
     const nodes = (l) => [...l.cells.values()].flat(), extent = (l) => Math.max(0, ...nodes(l).map((k) => at.get(k) + size.get(k)));
     const room = Math.max(...track.map(extent));
-    for (const l of track) {
-      const pull = nodes(l).flatMap((k) => [...up.get(k), ...down.get(k)].filter((n) => laneOf.get(n) !== l).map((n) => center.get(n) - center.get(k)));
-      const shift = Math.round(clamp(pull.reduce((s, p) => s + p, 0) / (pull.length || 1), 0, room - extent(l)));
-      for (const k of nodes(l)) at.set(k, at.get(k) + shift);
+    const firstDepth = (l) => Math.min(...nodes(l).map((k) => depthOf.get(k)));
+    const order = [...track].sort((a, c) => firstDepth(a) - firstDepth(c));
+    for (let round = 0, changed = true; changed && round < 4; round++) {
+      changed = false;
+      for (const l of order) {
+        const ks = nodes(l), lo = -Math.min(...ks.map((k) => at.get(k))), hi = room - extent(l);
+        const pulls = [
+          ...ks.flatMap((k) => up.get(k).filter((n) => laneOf.get(n) !== l).map((n) => center.get(n) + outOff.get(n).get(k) - inOff.get(k).get(n) - center.get(k))),
+          ...ks.flatMap((k) => down.get(k).filter((n) => laneOf.get(n) !== l).map((n) => center.get(n) + inOff.get(n).get(k) - outOff.get(k).get(n) - center.get(k))),
+        ].map((p) => Math.round(clamp(p, lo, hi)));
+        const count = (p) => pulls.filter((q) => q === p).length, mean = pulls.reduce((s, p) => s + p, 0) / (pulls.length || 1);
+        const better = (p, best) => count(p) - count(best) || Math.abs(best - mean) - Math.abs(p - mean);
+        const shift = pulls.reduce((best, p) => (better(p, best) > 0 ? p : best), pulls[0] || 0);
+        if (!shift) continue;
+        for (const k of ks) { at.set(k, at.get(k) + shift); center.set(k, center.get(k) + shift); }
+        changed = true;
+      }
     }
   }
 
