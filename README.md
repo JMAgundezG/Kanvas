@@ -25,7 +25,7 @@ AI agents do their best work in a terminal, but a project needs a plan that outl
 
 ### The easy way: let your agent set it up
 
-The easiest way to start is just to popen Claude Code, Codex, Cursor, Gemini CLI or OpenCode in your project's folder and paste into the chat:
+The easiest way to start is just to open Claude Code, Codex, Cursor, Gemini CLI or OpenCode in your project's folder and paste into the chat:
 
 > Set up Kanvas in this project with `uvx kanvas-board init` (https://github.com/XMihura/Kanvas), then follow `.agents/skills/kanvas/SKILL.md` and plan the work with me on the board.
 
@@ -80,7 +80,6 @@ Plan and track work on the Kanvas board; follow .agents/skills/kanvas/SKILL.md.
 > Interview me about this project and plan it on the Kanvas board.
 
 The plan arrives as proposals. Approve the ones you want, and tell the agent to start working.
-
 
 ### Other ways to install and update
 
