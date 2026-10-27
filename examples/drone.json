@@ -1,0 +1,202 @@
+{
+  "kanvas": 1,
+  "title": "Learning to fly",
+  "groups": [
+    {
+      "id": "SM",
+      "name": "Simulation"
+    },
+    {
+      "id": "TR",
+      "name": "Training"
+    },
+    {
+      "id": "EV",
+      "name": "Benchmark"
+    },
+    {
+      "id": "FT",
+      "name": "Flight tests"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "SM-01",
+      "title": "Simulate our drone",
+      "state": "done",
+      "group": "SM",
+      "at": "2026-10-19T09:00:00Z",
+      "by": "human",
+      "desc": "A quadcopter in the simulator with the real drone's weight, motors and camera.",
+      "notes": [
+        {
+          "at": "2026-10-20T15:10:00Z",
+          "by": "claude",
+          "text": "The simulated drone hovers and turns like the spec sheet says; within 5% on thrust and turn rate."
+        }
+      ]
+    },
+    {
+      "id": "SM-02",
+      "title": "An obstacle course with gates",
+      "state": "done",
+      "group": "SM",
+      "deps": ["SM-01"],
+      "at": "2026-10-19T09:01:00Z",
+      "by": "human",
+      "notes": [
+        {
+          "at": "2026-10-21T11:30:00Z",
+          "by": "codex",
+          "text": "Random courses of 8 gates between trees and poles; each run draws a new one."
+        }
+      ]
+    },
+    {
+      "id": "SM-03",
+      "title": "Random wind, weight and sensor noise",
+      "state": "done",
+      "group": "SM",
+      "deps": ["SM-01"],
+      "at": "2026-10-19T09:02:00Z",
+      "by": "claude",
+      "desc": "So a policy trained in the simulator does not depend on its perfect physics."
+    },
+    {
+      "id": "SM-04",
+      "title": "Match the simulated motors to the real ones",
+      "state": "doing",
+      "group": "SM",
+      "deps": ["SM-01"],
+      "at": "2026-10-25T09:00:00Z",
+      "by": "human",
+      "notes": [
+        {
+          "at": "2026-10-26T11:05:00Z",
+          "by": "claude",
+          "text": "Question: The simulator uses the spec sheet's 900 g of thrust per motor. Can you weigh the real thrust on a kitchen scale? Cheap motors often fall 10-20% short, and a policy trained on thrust it does not have will crash in gusts."
+        }
+      ]
+    },
+    {
+      "id": "TR-01",
+      "title": "Reward for passing gates without crashing",
+      "state": "done",
+      "group": "TR",
+      "deps": ["SM-02"],
+      "at": "2026-10-19T09:03:00Z",
+      "by": "human",
+      "notes": [
+        {
+          "at": "2026-10-22T10:00:00Z",
+          "by": "claude",
+          "text": "Points for each gate, a penalty for crashing and a small one for battery use."
+        }
+      ]
+    },
+    {
+      "id": "TR-02",
+      "title": "Train the first policy",
+      "state": "review",
+      "group": "TR",
+      "deps": ["TR-01", "SM-03"],
+      "at": "2026-10-19T09:04:00Z",
+      "by": "human",
+      "desc": "A policy that flies the drone from its camera and motion sensors alone.\n\n- [x] Passes every gate on most random courses\n- [x] Copes with wind up to 8 m/s",
+      "notes": [
+        {
+          "at": "2026-10-23T09:00:00Z",
+          "by": "codex",
+          "text": "Plan: PPO on 64 simulators at once, overnight."
+        },
+        {
+          "at": "2026-10-25T08:20:00Z",
+          "by": "codex",
+          "text": "The policy flies the course on its own: 92 of 100 random courses through every gate, 3 crashes, 5 too slow.\n\n**Check:** `make replay` plays ten flights, the three crashes among them; all three happen in gusts above 7 m/s.\n\n**Decide:** good enough to try on the real drone in calm weather, or train on stronger wind first (about 6 more hours)?"
+        }
+      ]
+    },
+    {
+      "id": "TR-03",
+      "title": "Hold steady in strong gusts",
+      "state": "proposed",
+      "group": "TR",
+      "deps": ["TR-02", "SM-04"],
+      "at": "2026-10-25T08:25:00Z",
+      "by": "codex",
+      "desc": "Keep training the first policy on gusts up to 12 m/s, with the measured motors; about 6 hours."
+    },
+    {
+      "id": "TR-04",
+      "title": "Run the policy on the drone's computer",
+      "state": "todo",
+      "group": "TR",
+      "deps": ["TR-02"],
+      "at": "2026-10-19T09:05:00Z",
+      "by": "human",
+      "desc": "Export it for the onboard computer and check it decides 50 times a second."
+    },
+    {
+      "id": "EV-01",
+      "title": "100 test courses kept out of training",
+      "state": "doing",
+      "group": "EV",
+      "deps": ["SM-02"],
+      "at": "2026-10-22T09:00:00Z",
+      "by": "claude",
+      "desc": "Fixed seeds, so every policy flies exactly the same courses and wind in the simulator."
+    },
+    {
+      "id": "EV-02",
+      "title": "Simulator race against the hand-tuned autopilot",
+      "state": "todo",
+      "group": "EV",
+      "deps": ["EV-01"],
+      "yolo": true,
+      "at": "2026-10-22T09:01:00Z",
+      "by": "claude",
+      "desc": "`make bench POLICY=...` flies a policy and our current autopilot on the test courses: gates passed, crashes and lap times side by side.",
+      "notes": [
+        {
+          "at": "2026-10-26T19:00:00Z",
+          "by": "human",
+          "text": "YOLO on: it all runs in the simulator, so go ahead without asking. Send me the table."
+        }
+      ]
+    },
+    {
+      "id": "FT-01",
+      "title": "Put up three gates in the field",
+      "state": "doing",
+      "group": "FT",
+      "at": "2026-10-26T11:30:00Z",
+      "by": "human",
+      "notes": [
+        {
+          "at": "2026-10-26T18:40:00Z",
+          "by": "human",
+          "text": "Two gates up; the third needs a longer pole."
+        }
+      ]
+    },
+    {
+      "id": "FT-02",
+      "title": "First autonomous flight",
+      "state": "todo",
+      "group": "FT",
+      "deps": ["TR-04", "FT-01"],
+      "at": "2026-10-19T09:06:00Z",
+      "by": "human",
+      "desc": "- [ ] Open field, calm day, nobody within 30 m\n- [ ] A safety pilot ready to take over\n- [ ] Three gates in a line, then land"
+    },
+    {
+      "id": "FT-03",
+      "title": "Fly the course through the woods",
+      "state": "proposed",
+      "group": "FT",
+      "deps": ["FT-02"],
+      "at": "2026-10-26T12:01:00Z",
+      "by": "codex"
+    }
+  ]
+}

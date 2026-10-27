@@ -1,0 +1,209 @@
+{
+  "kanvas": 1,
+  "title": "Website relaunch",
+  "groups": [
+    {
+      "id": "RS",
+      "name": "Research"
+    },
+    {
+      "id": "DS",
+      "name": "Design"
+    },
+    {
+      "id": "BE",
+      "name": "Backend"
+    },
+    {
+      "id": "FE",
+      "name": "Frontend"
+    },
+    {
+      "id": "CT",
+      "name": "Content"
+    },
+    {
+      "id": "QA",
+      "name": "Testing"
+    },
+    {
+      "id": "LN",
+      "name": "Launch"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "RS-01",
+      "title": "Interview five current customers",
+      "state": "done",
+      "group": "RS"
+    },
+    {
+      "id": "RS-02",
+      "title": "Audit analytics of the old site",
+      "state": "done",
+      "group": "RS"
+    },
+    {
+      "id": "RS-03",
+      "title": "Summarize what visitors look for",
+      "state": "done",
+      "group": "RS",
+      "deps": ["RS-01", "RS-02"]
+    },
+    {
+      "id": "RS-04",
+      "title": "Pick the pages to keep, merge or drop",
+      "state": "done",
+      "group": "RS",
+      "deps": ["RS-03"]
+    },
+    {
+      "id": "DS-01",
+      "title": "Sitemap and navigation",
+      "state": "done",
+      "group": "DS",
+      "deps": ["RS-03"]
+    },
+    {
+      "id": "DS-02",
+      "title": "Wireframes of the key pages",
+      "state": "done",
+      "group": "DS",
+      "deps": ["DS-01"]
+    },
+    {
+      "id": "DS-03",
+      "title": "Visual style and type scale",
+      "state": "done",
+      "group": "DS",
+      "deps": ["DS-01"]
+    },
+    {
+      "id": "DS-04",
+      "title": "Design review with the team",
+      "state": "review",
+      "group": "DS",
+      "deps": ["DS-02", "DS-03"]
+    },
+    {
+      "id": "BE-01",
+      "title": "Choose the CMS",
+      "state": "done",
+      "group": "BE",
+      "deps": ["DS-02"]
+    },
+    {
+      "id": "BE-02",
+      "title": "Content model and fields",
+      "state": "doing",
+      "group": "BE",
+      "deps": ["BE-01"]
+    },
+    {
+      "id": "BE-03",
+      "title": "Search index",
+      "state": "todo",
+      "group": "BE",
+      "deps": ["BE-01"]
+    },
+    {
+      "id": "BE-04",
+      "title": "Redirects from old URLs",
+      "state": "todo",
+      "group": "BE",
+      "deps": ["BE-02", "RS-04"]
+    },
+    {
+      "id": "FE-01",
+      "title": "Page templates",
+      "state": "todo",
+      "group": "FE",
+      "deps": ["BE-02", "DS-04"]
+    },
+    {
+      "id": "FE-02",
+      "title": "Navigation and footer",
+      "state": "todo",
+      "group": "FE",
+      "deps": ["FE-01"]
+    },
+    {
+      "id": "FE-03",
+      "title": "Search page",
+      "state": "todo",
+      "group": "FE",
+      "deps": ["FE-01", "BE-03"]
+    },
+    {
+      "id": "FE-04",
+      "title": "Accessibility pass",
+      "state": "proposed",
+      "group": "FE",
+      "deps": ["FE-02"]
+    },
+    {
+      "id": "CT-01",
+      "title": "Rewrite the product pages",
+      "state": "todo",
+      "group": "CT",
+      "deps": ["FE-02"]
+    },
+    {
+      "id": "CT-02",
+      "title": "Migrate the blog",
+      "state": "todo",
+      "group": "CT",
+      "deps": ["FE-02"]
+    },
+    {
+      "id": "CT-03",
+      "title": "New screenshots",
+      "state": "proposed",
+      "group": "CT",
+      "deps": ["CT-01"]
+    },
+    {
+      "id": "QA-01",
+      "title": "Cross-browser check",
+      "state": "todo",
+      "group": "QA",
+      "deps": ["CT-01", "FE-04"]
+    },
+    {
+      "id": "QA-02",
+      "title": "Check every redirect",
+      "state": "todo",
+      "group": "QA",
+      "deps": ["CT-02", "BE-04"]
+    },
+    {
+      "id": "QA-03",
+      "title": "Load test",
+      "state": "proposed",
+      "group": "QA",
+      "deps": ["QA-01"]
+    },
+    {
+      "id": "LN-01",
+      "title": "Switch DNS",
+      "state": "todo",
+      "group": "LN",
+      "deps": ["QA-01", "QA-02"]
+    },
+    {
+      "id": "LN-02",
+      "title": "Announce the new site",
+      "state": "proposed",
+      "group": "LN",
+      "deps": ["LN-01"]
+    },
+    {
+      "id": "LN-03",
+      "title": "Watch errors for a week",
+      "state": "proposed",
+      "group": "LN",
+      "deps": ["LN-01"]
+    }
+  ]
+}
