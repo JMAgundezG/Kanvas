@@ -23,6 +23,16 @@ AI agents do their best work in a terminal, but a project needs a plan that outl
 
 ## Quick start
 
+### The easy way: let your agent set it up
+
+The easiest way to start is just to popen Claude Code, Codex, Cursor, Gemini CLI or OpenCode in your project's folder and paste into the chat:
+
+> Set up Kanvas in this project with `uvx kanvas-board init` (https://github.com/XMihura/Kanvas), then follow `.agents/skills/kanvas/SKILL.md` and plan the work with me on the board.
+
+The agent should then guide you.
+
+### Formal quickstart
+
 Kanvas works on Linux, macOS and Windows. You need a browser and [uv](https://docs.astral.sh/uv/), which installs Kanvas and downloads Python too if your computer has none.
 
 **1. Install uv** (once). On macOS and Linux, run this in a terminal:
@@ -71,13 +81,6 @@ Plan and track work on the Kanvas board; follow .agents/skills/kanvas/SKILL.md.
 
 The plan arrives as proposals. Approve the ones you want, and tell the agent to start working.
 
-### Let your agent set it up
-
-With uv installed (step 1), you can hand steps 2 to 4 to your agent. Open Claude Code, Codex, Cursor, Gemini CLI or OpenCode in your project's folder and paste:
-
-> Set up Kanvas in this project with `uvx kanvas-board init` (https://github.com/XMihura/Kanvas), then follow `.agents/skills/kanvas/SKILL.md` and plan the work with me on the board.
-
-The agent creates the board, looks at what the project already holds, asks you what it needs to know and proposes a plan. To watch the board, run `uvx kanvas-board serve` in the project's folder, or `kanvas serve` if you installed Kanvas. Codex keeps `.agents/` read-only in its sandbox, so it asks your permission to run `init` outside it. Gemini CLI loads the skill only in folders you have marked as trusted, and asks before using it.
 
 ### Other ways to install and update
 
